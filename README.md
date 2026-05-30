@@ -1,92 +1,72 @@
-# Research & Dev Repo Template
+# projector-controller
 
-> **English (summary):** A Markdown scaffold for running research & development repositories with AI coding agents (Claude Code / Codex) and humans working together. **`AGENTS.md` is the core** (the operating manual for AI agents); every other file supports it. Click **"Use this template"**, then fill the `{{...}}` placeholders and `<!-- TODO -->` markers — start with `AGENTS.md`. Full documentation is in Japanese below; see `TEMPLATE_GUIDE.md` for the whole system.
-> <!-- この英語サマリーは配布用の任意項目です。不要なら削除して構いません。 -->
+Python から画像や映像をプロジェクタへ投影するための制御ライブラリを育てるリポジトリです。投影時のウィンドウ位置、対象ディスプレイ、フルスクリーン表示を扱える設計を目標にします。
 
-AI コーディングエージェント（Claude Code / Codex 等）と人間が**協働**で研究開発リポジトリをきれいに運用するための雛形。
-**中心は `AGENTS.md`**（AI への運用規約）。他のファイルはそれを支える。
+> このファイルは人間向けの入口です。AI コーディングエージェント向けの運用規約は `AGENTS.md`、現在の作業状態は `STATUS.md` を参照してください。
 
-> このリポジトリは GitHub の **テンプレートリポジトリ**として配布される想定です。
-> 配布する側は Settings → General → **Template repository** を ON にすると「Use this template」ボタンが出ます。
+## Current Status
 
-<!-- ▼▼ セットアップが終わったら、ここから区切り線（---）までを削除し、下を自分のプロジェクト README にしてください ▼▼ -->
+- 現時点ではドキュメント整理段階です。
+- Python パッケージ、実行コマンド、依存ライブラリはまだ未作成・未確定です。
+- 公開 API、GUI / 動画再生バックエンド、設定ファイル形式は人間確認後に決めます。
 
-## How To Use This Template
+## Goals
 
-1. 上部の **「Use this template」→ Create a new repository** で自分のリポを作る。
-2. 下記の **プレースホルダ／TODO を埋める**（最重要は `AGENTS.md`）。
-3. 仕組みの全体像は [`TEMPLATE_GUIDE.md`](./TEMPLATE_GUIDE.md) を参照（把握後は削除可）。
+- Python から呼び出せる投影制御 API を提供する。
+- 静止画と映像の投影を扱う。
+- 投影ウィンドウの位置、サイズ、対象ディスプレイ、フルスクリーン表示を指定できるようにする。
+- 将来的な投影テストや現場ごとの設定を記録し、再現しやすくする。
 
-## Filling In TODOs（プレースホルダの埋め方）
+## Non-Goals for the Initial Setup
 
-プレースホルダは 2 種類：
+- プロジェクションマッピング、台形補正、色補正などの数式を今すぐ実装しない。
+- GUI / メディア再生ライブラリをこの段階で固定しない。
+- ハードウェア固有の制御プロトコルを先に作り込まない。
 
-- **`{{...}}`** … 自分の値に置き換える。例: `{{package}}` → `mylib`
-- **`<!-- TODO: ... -->`** … 対応が必要な箇所の目印。HTML コメントなので表示はされない。埋めたら削除する。
+## Planned Usage Sketch
 
-置き換えの例（before → after）：
+以下は API の形を考えるためのスケッチであり、確定した公開 API ではありません。
 
+```python
+from projector_controller import ProjectionWindow
+
+with ProjectionWindow(display=1, fullscreen=True, background="black") as window:
+    window.show_image("media/test-pattern.png")
 ```
-Project Overview: {{時系列データから状態を推定する…}}  →  本プロジェクトは … を推定する。
-- セットアップ: {{uv sync}}                              →  - セットアップ: uv sync
-| src/{{package}}/ | 本体 |                              →  | src/mylib/ | 本体 |
-LICENSE: Copyright (c) 2026 {{YOUR NAME / ORG}}          →  Copyright (c) 2026 Taro Yamada
-```
 
-**まずここから（`AGENTS.md` が主体）：**
-
-- `Project Overview` — プロジェクトの 1〜2 文
-- `Directory Structure` — 実際の構成に合わせる
-- `Commands` / `Operation Guide`（Prerequisites・Setup・Coding Conventions）— 実コマンド・実スタックに
-
-**次に（必要なものだけ）：**
-
-- `LICENSE` — `{{YOUR NAME / ORG}}` を自分／組織名に
-- `CLAUDE.md` — 基本そのまま（`@AGENTS.md` を参照する）。固有メモがあれば追記
-- `docs/ARCHITECTURE.md` — 採用するアーキ様式・Module Map を確定
-- `docs/THEORY.md` — 数式を扱うなら記号表・式から
-- この README 下部の本体（`{{プロジェクト名}}` 等）
-- 使わない doc は削除してよい（規模別の取捨は [`TEMPLATE_GUIDE.md`](./TEMPLATE_GUIDE.md)）
-
-> ヒント：全部を一度に埋めない。**`AGENTS.md` だけ埋めて走り出す**のが最小構成。
-> 普遍ルールを全リポで効かせたいなら、`AGENTS.md` の Policies を `~/.claude/CLAUDE.md` にも置くとよい。
-
-<!-- ▲▲ ここまで削除 ▲▲ -->
-
----
-
-# {{プロジェクト名}}
-
-{{1〜2 文の説明。何をするプロジェクトか。}}
-
-> このファイルは**人間向け**の入口。AI コーディングエージェント向けの運用規約は `AGENTS.md`（Claude Code は `CLAUDE.md` 経由で参照）。
-
-## Quickstart
-
-```bash
-{{uv sync}}    # セットアップ
-{{make run}}   # 実行
-{{make test}}  # テスト
-```
+この形にするか、関数ベースにするか、設定ファイルを中心にするかは `docs/ARCHITECTURE.md` の候補を見て決めます。
 
 ## Requirements
 
-- {{Python 3.10+ など}}
-- {{依存管理ツール}}
+- Python: バージョン未確定。最初の実装前に決める。
+- 依存管理: 未確定。
+- GUI / メディア再生バックエンド: 未確定。
+
+## Quickstart
+
+まだ実行可能な Python パッケージはありません。実装環境を作る段階で、セットアップ手順と実行コマンドをここに追記します。
 
 ## Documentation Map
 
 | ファイル | 内容 |
 |------|------|
-| `AGENTS.md` | AI への運用規約（**中心**） |
-| `PLANS.md` | 進行中タスクの計画 |
-| `STATUS.md` | 今の状態 |
-| `MEMORY.md` | 確定した決定・落とし穴 |
-| `docs/ARCHITECTURE.md` | 設計思想・依存ルール・パターン集 |
-| `docs/THEORY.md` | 数式・理論 |
+| `AGENTS.md` | AI エージェント向けの運用規約 |
+| `STATUS.md` | 今の作業状態、次の作業、未決事項 |
+| `PLANS.md` | 複数ステップ作業の計画 |
+| `MEMORY.md` | 確定した決定、規約、落とし穴 |
+| `docs/ARCHITECTURE.md` | 設計方針、候補案、モジュール境界 |
 | `docs/GLOSSARY.md` | 用語集 |
-| `docs/EXPERIMENTS.md` | 実験ログ |
-| `CONTRIBUTING.md` | 開発参加の手引き |
+| `docs/THEORY.md` | 投影幾何や補正など、数式を扱う場合の記録 |
+| `docs/EXPERIMENTS.md` | 投影テスト、現場検証、再現条件のログ |
+| `DESIGN.md` | 投影ウィンドウと将来の操作 UI の表示設計 |
+| `CONTRIBUTING.md` | 人間の開発者向けの参加手順 |
+
+## Open Questions
+
+- 画像・映像表示のバックエンドに何を使うか。
+- 最初の公開 API は、関数ベース、ウィンドウオブジェクトベース、設定ファイルベースのどれにするか。
+- ディスプレイ番号、座標、フルスクリーン指定をどう表現するか。
+- 実行環境を `uv` / `pip` / その他のどれで管理するか。
 
 ## License
 
