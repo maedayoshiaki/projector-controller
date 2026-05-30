@@ -1,0 +1,45 @@
+# === Secrets / 認証情報（AGENTS.md §8 Boundaries と整合）===
+.env
+.env.*
+*.key
+*.pem
+credentials.json
+secrets.*
+
+# Claude Code の個人用メモ（任意・gitignore 推奨）
+CLAUDE.local.md
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# === Notebooks ===
+.ipynb_checkpoints/
+
+# === 研究の生成物（プロジェクトに合わせて調整）===
+# <!-- TODO: 実際のデータ/成果物の置き場所に合わせて見直す -->
+data/
+outputs/
+checkpoints/
+*.ckpt
+*.pt
+*.pth
+*.h5
+*.log
+wandb/
+mlruns/
+lightning_logs/
+
+# === OS / エディタ ===
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
