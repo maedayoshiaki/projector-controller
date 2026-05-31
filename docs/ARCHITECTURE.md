@@ -96,6 +96,40 @@ graph TD
 - `FitMode`: `contain`, `cover`, `stretch`, `native` などの表示方法。
 - `MediaSource`: 静止画、動画、生成フレームなどの入力。
 
+## Window Placement（決定済み: 2026-05-31）
+
+ウィンドウの表示位置は `position`（左上座標）と `size`（幅・高さ）で表す。
+
+- **原点はデスクトップ全体の左上（絶対座標）**。OS のマルチモニタ原点をそのまま使う。
+- `position` を **省略（`None`）** すると、backend が **対象 `display` の中央**にウィンドウを開く。
+- `position` を **指定** すると、その**絶対座標**にウィンドウを開く（`display` 指定よりも座標が優先される）。
+- `fullscreen=True` のときは `position` を無視し、`display` 全体を覆う。
+
+理由: pygame 2.6.1 (classic / SDL 2.28.4) の公開 API には各ディスプレイの原点を返す関数がない
+（`get_desktop_rects` も `_sdl2.video.get_displays` も非搭載）。そのため「ディスプレイ相対座標」を
+正しく実装するには ctypes で SDL を直叩きする必要があり、「小さく始める」方針に反する。絶対座標 +
+`display` 中央デフォルトなら追加依存なしで堅牢に実装できる。ディスプレイ相対座標が必要になった段階で
+別途検討する（pygame-ce への移行 or ctypes）。
+
+CLI 対応: `--x/--y` を省略すると `--display` の中央、指定すると絶対座標。
+
+## DPI スケーリング（Windows）
+
+Windows の表示スケーリング（例: 200%）が有効だと、DPI 非対応プロセスでは SDL が
+**論理サイズ**（物理の縮小値。例: 2880x1800 → 1440x900）しか見えず、ウィンドウや
+fullscreen が意図しない大きさになる。これを避けるため、pygame backend は SDL 初期化前に
+`SDL_WINDOWS_DPI_AWARENESS=permonitorv2` を設定し、**物理ピクセル**で扱う
+（`os.environ.setdefault` なので利用者が上書き可能。非 Windows では無視される）。
+
+診断方法: `pygame.display.get_desktop_sizes()` の値 × OS のスケール = 物理解像度
+（`Get-CimInstance Win32_VideoController`）になっていれば DPI 非対応で論理値を見ている。
+
+## Fullscreen 方式
+
+`fullscreen=True` は `pygame.FULLSCREEN` を使い、`set_mode((0, 0), ...)` で対象 display
+全体を覆う。DPI 対応により、この (0,0) が選ぶサイズは論理値ではなく**物理解像度**になる。
+（`borderless=True` は別フラグで、枠なしウィンドウを指定サイズで開く用途。）
+
 ## Configuration Options（未確定）
 
 | 案 | 概要 | 長所 | 短所 |
@@ -118,3 +152,4 @@ graph TD
 - 設定ファイル形式を導入するか、導入するならどの形式にするか。
 - 動画再生と音声を pygame で拡張するか、Qt などへ広げるか。
 - プロジェクションマッピングや台形補正をいつ扱うか。
+- ディスプレイ相対座標の指定（現状は絶対座標のみ。必要なら pygame-ce 移行か ctypes で対応）。

@@ -13,6 +13,8 @@
 | 2026-05-30 | 初期実装は Python 3.12 + uv、pygame / SDL backend、`ProjectionWindow` API で進める | display 指定、fullscreen、ウィンドウ位置を先に検証するため | pyproject.toml、src/projector_controller、README、ARCHITECTURE |
 | 2026-05-30 | MVP は静止画と生成テストパターンに絞り、動画・音声・操作 UI は後回しにする | 投影面の基本制御を先に安定させるため | src/projector_controller、examples、docs/EXPERIMENTS.md |
 | 2026-05-31 | ウィンドウ位置 `--x/--y` はデスクトップ絶対座標とし、省略時は `--display` 中央。ディスプレイ相対座標は将来課題 | pygame 2.6.1(classic/SDL2.28.4) の公開 API にディスプレイ原点取得が無く、相対座標は ctypes 直叩きが必要で「小さく始める」方針に反するため | config.py、window.py、cli.py、pygame_backend.py、docs/ARCHITECTURE.md |
+| 2026-05-31 | Windows DPI 対応は `SDL_WINDOWS_DPI_AWARENESS=permonitorv2`（ヒント方式）で行う | 実機が DPI 200% で、非対応だと SDL が論理サイズ(半分)しか見えずウィンドウ/全画面が崩れる。ヒント方式は OS 分岐不要・上書き可・新規依存なし。実機で物理値取得を確認 | pygame_backend.py、docs/ARCHITECTURE.md |
+| 2026-05-31 | fullscreen は `pygame.FULLSCREEN`（`set_mode((0,0))`）方式を維持する | 人間の指示。DPI 対応により (0,0) が物理解像度を選ぶため、解像度切替方式でも崩れない。一度 desktop-style borderless に変更したが指示に反したため戻した | pygame_backend.py、docs/ARCHITECTURE.md |
 
 ## Conventions
 
@@ -27,6 +29,7 @@
 - フルスクリーン、ウィンドウ座標、ディスプレイ選択は OS と接続環境の影響を受けるため、実機テストログを残す必要がある。
 - pygame 2.6.1 (classic) はディスプレイ原点取得 API（`get_desktop_rects` / `_sdl2.video.get_displays`）を持たない。原点が必要になったら pygame-ce 移行か ctypes(SDL_GetDisplayBounds) を検討する。
 - windowed の絶対位置指定は `SDL_VIDEO_WINDOW_POS` 環境変数で行う。位置未指定時は設定せず `set_mode(display=N)` に中央配置を任せる（旧実装は常に (0,0) を渡して固定されるバグがあった）。
+- Windows DPI スケーリング（実機は 200%）で SDL が論理サイズしか見えず、ウィンドウ/全画面サイズが崩れる。`SDL_WINDOWS_DPI_AWARENESS=permonitorv2` を pygame import 前に設定して物理ピクセルで扱う。診断は「`get_desktop_sizes()` の値 ×スケール = 物理解像度（`Get-CimInstance Win32_VideoController`）」で判別できる。
 
 ## Domain Facts
 

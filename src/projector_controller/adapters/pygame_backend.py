@@ -11,6 +11,10 @@ from projector_controller.config import DisplaySpec, FitMode, ProjectionConfig, 
 from projector_controller.fit import compute_fit_rect
 
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
+# Windows: become per-monitor DPI aware before SDL initializes so pygame reports
+# physical pixels (e.g. 2880x1800) instead of scaled logical sizes (1440x900 at
+# 200%). Set as a hint so users can override; ignored on non-Windows platforms.
+os.environ.setdefault("SDL_WINDOWS_DPI_AWARENESS", "permonitorv2")
 import pygame  # noqa: E402
 
 
@@ -53,6 +57,8 @@ class PygameProjectionBackend:
             pygame.init()
             pygame.font.init()
             flags = self._window_flags()
+            # Fullscreen uses (0, 0) so SDL picks the display's full size (mode
+            # switch). DPI awareness ensures that size is the physical resolution.
             size = (0, 0) if self._config.fullscreen else self._config.size.as_tuple()
             self._surface = pygame.display.set_mode(size, flags=flags, display=display)
             pygame.display.set_caption("projector-controller")

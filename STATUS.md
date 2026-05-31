@@ -4,8 +4,8 @@
 各セッションの最初に読み、最後に更新する。確定した事項は `MEMORY.md` へ昇格する。
 
 - **Last updated:** 2026-05-31
-- **Current focus:** ウィンドウ位置(x,y)の仕様確定と実装が完了。次は実機投影テスト
-- **Working branch:** feature/window-position
+- **Current focus:** 実機テストで判明した Windows DPI スケーリング問題を修正。再テスト待ち
+- **Working branch:** feature/projtest-001
 
 ---
 
@@ -25,10 +25,11 @@
 
 ## Blocked
 
-- 実機投影での fullscreen / 座標挙動確認 — **理由:** プロジェクタまたは外部ディスプレイでの手動確認待ち。
+- 実機投影での fullscreen / 座標挙動確認 — **理由:** DPI 対応を実装済み（fullscreen は `pygame.FULLSCREEN` 方式を維持）。外部モニタで projtest-001 を再実行し結果記入待ち（プロジェクタは未接続）。
 
 ## Recently Done
 
+- 2026-05-31 実機テストで Windows DPI 200% による表示サイズ崩れを発見・修正。`SDL_WINDOWS_DPI_AWARENESS=permonitorv2` で物理ピクセル化（fullscreen は `pygame.FULLSCREEN` 方式のまま）。一度 desktop-style borderless に変えたが指示に反したため revert した。
 - 2026-05-31 ウィンドウ位置(x,y)を「絶対座標＋display中央デフォルト」で確定・実装。`ProjectionConfig` を `geometry` から `position`/`size` へ変更し、windowed の (0,0) 固定バグを修正。テスト・README・ARCHITECTURE を更新。
 - 2026-05-30 テンプレート文書を整理し、README、AGENTS、設計、用語、表示設計、投影テストログを projector-controller 向けに更新。
 - 2026-05-30 テンプレート専用の `TEMPLATE_GUIDE.md` を削除し、ADR テンプレートをプロジェクト用に調整。
