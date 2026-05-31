@@ -6,7 +6,9 @@ import socket
 import struct
 import subprocess
 import sys
+import threading
 import time
+from collections import deque
 from pathlib import Path
 from types import TracebackType
 from typing import IO, Literal, Self
@@ -62,6 +64,11 @@ class RealtimeProjection:
         self.connect_timeout = connect_timeout
         self._process: subprocess.Popen[str] | None = None
         self._socket: socket.socket | None = None
+        # Bounded buffers fed by background drain threads so the renderer can never
+        # block writing to a full stdout/stderr pipe. Kept for error diagnostics.
+        self._stderr_lines: deque[str] = deque(maxlen=200)
+        self._stdout_lines: deque[str] = deque(maxlen=50)
+        self._drain_threads: list[threading.Thread] = []
 
     def open(self) -> Self:
         if self._process is not None:
@@ -75,9 +82,14 @@ class RealtimeProjection:
             text=True,
         )
         try:
+            # Drain stderr from the start so a chatty renderer cannot fill the OS pipe
+            # buffer and block its own thread. stdout is read directly until READY,
+            # then drained the same way.
+            self._spawn_drain(self._process.stderr, self._stderr_lines)
             address = self._read_ready_address()
             self._socket = socket.create_connection(address, timeout=self.connect_timeout)
             self._socket.settimeout(None)
+            self._spawn_drain(self._process.stdout, self._stdout_lines)
         except Exception:
             self.close()
             raise
@@ -106,6 +118,9 @@ class RealtimeProjection:
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=2)
+        finally:
+            self._join_drains(0.5)
+            self._drain_threads.clear()
 
     def submit_frame(
         self,
@@ -183,7 +198,7 @@ class RealtimeProjection:
         deadline = time.monotonic() + self.connect_timeout
         while time.monotonic() < deadline:
             if process.poll() is not None:
-                raise RuntimeError(_renderer_exit_message(process))
+                raise RuntimeError(self._renderer_exit_message(process))
             line = stdout.readline()
             if not line:
                 continue
@@ -206,6 +221,26 @@ class RealtimeProjection:
             msg = "realtime projection is not open"
             raise RuntimeError(msg)
         return self._socket
+
+    def _spawn_drain(self, stream: IO[str] | None, sink: deque[str]) -> None:
+        if stream is None:
+            return
+        thread = threading.Thread(target=_drain_stream, args=(stream, sink), daemon=True)
+        thread.start()
+        self._drain_threads.append(thread)
+
+    def _join_drains(self, timeout: float) -> None:
+        for thread in self._drain_threads:
+            thread.join(timeout)
+
+    def _renderer_exit_message(self, process: subprocess.Popen[str]) -> str:
+        # The pipe is at EOF once the process has exited, so the drain thread finishes
+        # quickly; join it to capture the full stderr before reporting.
+        self._join_drains(0.5)
+        stderr = "\n".join(self._stderr_lines).strip()
+        if stderr:
+            return f"renderer exited with code {process.returncode}: {stderr}"
+        return f"renderer exited with code {process.returncode}"
 
 
 def find_renderer_binary() -> Path:
@@ -255,15 +290,16 @@ def _encode_quit_header() -> bytes:
     return _FRAME_HEADER.pack(_QUIT_MAGIC, 0, 0, 0, 0, 0, 0)
 
 
-def _renderer_exit_message(process: subprocess.Popen[str]) -> str:
-    stderr = _read_remaining(process.stderr)
-    if stderr:
-        return f"renderer exited with code {process.returncode}: {stderr.strip()}"
-    return f"renderer exited with code {process.returncode}"
+def _drain_stream(stream: IO[str], sink: deque[str]) -> None:
+    """Continuously copy a renderer pipe into a bounded buffer.
 
+    Without this, a renderer that writes enough to stdout/stderr would fill the OS
+    pipe buffer and block on its next write, stalling frame rendering.
+    """
 
-def _read_remaining(stream: IO[str] | None) -> str:
-    if stream is None:
-        return ""
-    data = stream.read()
-    return data
+    try:
+        for line in stream:
+            sink.append(line.rstrip("\n"))
+    except (OSError, ValueError):
+        # Stream was closed while the renderer was shutting down.
+        pass

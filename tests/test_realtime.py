@@ -1,10 +1,16 @@
 import struct
+from collections import deque
+from io import StringIO
 from pathlib import Path
 
 import pytest
 
 from projector_controller.config import Point, Size
-from projector_controller.realtime import RealtimeProjection, _encode_frame_header
+from projector_controller.realtime import (
+    RealtimeProjection,
+    _drain_stream,
+    _encode_frame_header,
+)
 
 
 def test_realtime_renderer_command_uses_window_options() -> None:
@@ -54,3 +60,12 @@ def test_realtime_projection_rejects_bad_frame_size_before_open() -> None:
 
     with pytest.raises(ValueError, match="byte length"):
         projection.submit_frame(b"\x00" * 15, width=2, height=2)
+
+
+def test_drain_stream_keeps_last_lines_within_bound() -> None:
+    sink: deque[str] = deque(maxlen=2)
+
+    _drain_stream(StringIO("first\nsecond\nthird\n"), sink)
+
+    # Lines are stripped of newlines and the bounded buffer keeps only the latest.
+    assert list(sink) == ["second", "third"]
