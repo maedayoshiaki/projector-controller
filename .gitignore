@@ -24,10 +24,10 @@ dist/
 # === Notebooks ===
 .ipynb_checkpoints/
 
-# === 研究の生成物（プロジェクトに合わせて調整）===
-# <!-- TODO: 実際のデータ/成果物の置き場所に合わせて見直す -->
+# === Generated artifacts / local media ===
 data/
 outputs/
+media/local/
 checkpoints/
 *.ckpt
 *.pt

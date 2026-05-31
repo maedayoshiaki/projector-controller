@@ -4,7 +4,9 @@
 
 ## Setup
 
-現時点では Python パッケージと依存管理は未整備です。`pyproject.toml` やタスクランナーを追加したら、この節と README を更新してください。
+```powershell
+uv sync --dev
+```
 
 ## Branch & Commit
 
@@ -14,7 +16,14 @@
 
 ## Before You Open a PR
 
-コード変更がある場合は、整形、静的解析、型チェック、テストを通してください。現時点ではコマンド未整備なので、実装環境を追加した PR で実コマンドを定義します。
+コード変更がある場合は、整形、静的解析、型チェック、テストを通してください。
+
+```powershell
+uv run ruff format .
+uv run ruff check .
+uv run mypy src tests
+uv run pytest
+```
 
 ドキュメントのみの変更では、検索ツールで未置換プレースホルダや未処理マーカーが残っていないことを確認してください。
 

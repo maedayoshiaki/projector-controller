@@ -1,0 +1,52 @@
+[project]
+name = "projector-controller"
+version = "0.1.0"
+description = "Python utilities for projecting images and videos to projector displays."
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Yoshiaki Maeda" },
+]
+dependencies = [
+  "pygame>=2.6.1",
+]
+
+[project.scripts]
+projector-controller = "projector_controller.cli:main"
+
+[dependency-groups]
+dev = [
+  "mypy>=1.19.0",
+  "pytest>=9.0.1",
+  "ruff>=0.14.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "UP"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+packages = ["projector_controller"]
+
+[[tool.mypy.overrides]]
+module = ["pygame", "pygame.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "projector_controller.adapters.pygame_backend"
+disable_error_code = ["no-untyped-call"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
