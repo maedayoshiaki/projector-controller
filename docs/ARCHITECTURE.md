@@ -135,6 +135,22 @@ graph TD
 
 理由: Python process 内で GUI event loop と GPU device を握るより、Rust renderer process に分離した方が GIL と Python 側のスケジューリング影響を受けにくい。将来 shared memory / ring buffer へ移す場合も、frame sink の境界が明確になる。
 
+## Display / Monitor 番号の権威（決定済み: 2026-05-31）
+
+display 番号の列挙元が backend で 2 系統あり、番号がずれ得る問題への方針。
+
+- **pygame 経路**（`ProjectionWindow` / CLI `--list-displays`）: pygame `get_desktop_sizes()` の順。
+- **realtime 経路**（`RealtimeProjection` / Rust renderer）: winit `available_monitors()` の順。
+
+両者の列挙順は一致保証がない。そこで **realtime 経路では Rust renderer の winit 列挙を権威（source of truth）** とする。
+
+- Rust renderer に `--list-monitors` を追加。winit の `available_monitors()` を `index/x/y/width/height/scale/name` の TSV で出力する。
+- この列挙は `render::run` が `--display N` で `nth(N)` する対象と同一なので、表示した番号と `--display N` が選ぶモニタが原理的に一致する。
+- Python は `list_renderer_monitors()`（→ `RendererMonitor`）で取得し、CLI は `--list-monitors` で表示する。`RendererMonitor.index` をそのまま `RealtimeProjection(display=...)` に渡せる。
+- pygame 経路（静止画・テストパターン）は従来どおり `--list-displays`。
+
+理由: pygame には各モニタの原点を返す API がない（Window Placement 参照）ため、2 系統を原点座標でマッチングする案は ctypes 依存が増え「小さく始める」に反する。realtime 経路で使う番号を、その経路自身の列挙で見せれば、追加依存なしで番号ずれを原理的に排除できる。pygame と winit の番号が実際に一致するかは環境依存なので `docs/EXPERIMENTS.md`（projtest-002）で実機確認する。
+
 ## Window Placement（決定済み: 2026-05-31）
 
 ウィンドウの表示位置は `position`（左上座標）と `size`（幅・高さ）で表す。

@@ -78,8 +78,13 @@ Rust GPU renderer を使う場合:
 
 ```powershell
 cargo build -p projector-controller-renderer
+# realtime 経路の display 番号は Rust renderer(winit) 列挙が権威。これで番号を確認する。
+uv run projector-controller --list-monitors
 uv run python examples\realtime_frames.py
 ```
+
+> `--list-displays` は pygame 経路（`ProjectionWindow`）用、`--list-monitors` は realtime 経路
+> （`RealtimeProjection`）用です。realtime の `--display` には `--list-monitors` の番号を使ってください。
 
 フルスクリーンでテストパターンを表示する場合:
 

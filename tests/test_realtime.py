@@ -10,6 +10,7 @@ from projector_controller.realtime import (
     RealtimeProjection,
     _drain_stream,
     _encode_frame_header,
+    _parse_monitor_lines,
 )
 
 
@@ -69,3 +70,22 @@ def test_drain_stream_keeps_last_lines_within_bound() -> None:
 
     # Lines are stripped of newlines and the bounded buffer keeps only the latest.
     assert list(sink) == ["second", "third"]
+
+
+def test_parse_monitor_lines_parses_fields_and_skips_noise() -> None:
+    text = (
+        "MONITOR\t0\t0\t0\t2880\t1800\t2.0\tBuilt-in Display\n"
+        "junk line\n"
+        "MONITOR\t1\t2880\t0\t1920\t1080\t1\t\n"
+    )
+
+    monitors = _parse_monitor_lines(text)
+
+    assert [m.index for m in monitors] == [0, 1]
+    # Names with spaces survive; the second monitor has an empty name.
+    assert monitors[0].name == "Built-in Display"
+    assert monitors[1].name == ""
+    # Origin and scale are parsed; index 1 sits to the right of index 0.
+    assert (monitors[1].x, monitors[1].y) == (2880, 0)
+    assert monitors[0].scale == 2.0
+    assert monitors[1].scale == 1.0

@@ -133,5 +133,18 @@ uv run projector-controller --image path\to\image.png --display N --fit-mode nat
   ```
 - **Expected:** Rust renderer window が開き、生成グラデーション frame が滑らかに更新される。
 - **Result:** local windowed smoke として、Python `RealtimeProjection` から Rust renderer を起動し、64x64 RGBA frame を 320x240 window に送信して終了できた。
+
+#### M0: display / monitor 番号の一致確認（pygame vs Rust renderer）
+
+realtime 経路の `--display` 番号は Rust renderer の winit 列挙を権威とする（docs/ARCHITECTURE.md「Display / Monitor 番号の権威」）。pygame 列挙と winit 列挙の番号が実機で一致するかを確認する。
+
+```powershell
+uv run projector-controller --list-displays    # pygame 列挙
+uv run projector-controller --list-monitors    # Rust renderer (winit) 列挙
+```
+
+- **Expected:** 同じ物理モニタが両方で同じ番号・同じ物理解像度で並ぶ。外部モニタ接続時は番号順が一致するか特に確認する。
+- **Result（2026-05-31 単一モニタ）:** `--list-displays` → `0: 2880x1800`、`--list-monitors` → `0: 2880x1800 @(0,0) scale=2.0 \\.\DISPLAY1`。単一モニタで番号・物理解像度ともに一致。winit も DPI 物理ピクセル（scale=2.0）を報告。
+- **Issues:** 外部モニタ接続時の番号順一致は未検証（複数モニタで要確認）。
 - **Issues:** 外部 display / fullscreen / DPI / 座標挙動は未確認。
 - **Conclusion:** Rust renderer の最小起動と frame IPC は動作。pygame backend と fullscreen 方式が異なるため、display 番号・fullscreen・DPI・座標挙動を改めて確認する。

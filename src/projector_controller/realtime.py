@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
 from typing import IO, Literal, Self
@@ -28,6 +29,27 @@ _FIT_MODES: dict[FitMode | None, int] = {
     "stretch": 3,
     "native": 4,
 }
+_MONITOR_PREFIX = "MONITOR"
+_MONITOR_FIELDS = 8
+
+
+@dataclass(frozen=True)
+class RendererMonitor:
+    """A monitor as enumerated by the Rust renderer (winit).
+
+    These indices are authoritative for the realtime path: ``index`` is exactly the
+    value to pass as ``RealtimeProjection(display=...)``. They are produced by winit and
+    may differ from the pygame-based ``list_displays()`` ordering, so prefer this when
+    choosing a target monitor for the Rust renderer.
+    """
+
+    index: int
+    name: str
+    x: int
+    y: int
+    width: int
+    height: int
+    scale: float
 
 
 class RealtimeProjection:
@@ -241,6 +263,50 @@ class RealtimeProjection:
         if stderr:
             return f"renderer exited with code {process.returncode}: {stderr}"
         return f"renderer exited with code {process.returncode}"
+
+
+def list_renderer_monitors(
+    renderer_path: str | Path | None = None,
+    *,
+    timeout: float = 5.0,
+) -> list[RendererMonitor]:
+    """List monitors as seen by the Rust renderer (the authoritative realtime order).
+
+    Runs the renderer with ``--list-monitors`` and parses its output. The returned
+    indices match ``RealtimeProjection(display=...)``.
+    """
+
+    binary = Path(renderer_path) if renderer_path is not None else find_renderer_binary()
+    result = subprocess.run(
+        [str(binary), "--list-monitors"],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=True,
+    )
+    return _parse_monitor_lines(result.stdout)
+
+
+def _parse_monitor_lines(text: str) -> list[RendererMonitor]:
+    monitors: list[RendererMonitor] = []
+    for line in text.splitlines():
+        # maxsplit keeps a name containing spaces (or empty) intact as the last field.
+        parts = line.split("\t", _MONITOR_FIELDS - 1)
+        if len(parts) != _MONITOR_FIELDS or parts[0] != _MONITOR_PREFIX:
+            continue
+        _, index, x, y, width, height, scale, name = parts
+        monitors.append(
+            RendererMonitor(
+                index=int(index),
+                name=name,
+                x=int(x),
+                y=int(y),
+                width=int(width),
+                height=int(height),
+                scale=float(scale),
+            )
+        )
+    return monitors
 
 
 def find_renderer_binary() -> Path:

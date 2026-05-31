@@ -6,7 +6,7 @@ use std::{
     thread,
 };
 
-use winit::event_loop::EventLoopBuilder;
+use winit::event_loop::{EventLoop, EventLoopBuilder};
 
 mod protocol;
 mod render;
@@ -17,6 +17,15 @@ use render::{RendererConfig, RendererEvent};
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse(env::args().skip(1))?;
     let event_loop = EventLoopBuilder::<RendererEvent>::with_user_event().build()?;
+
+    // Authoritative monitor list for the realtime path: this is the same winit
+    // enumeration that `render::run` indexes with `--display`, so the numbers printed
+    // here map 1:1 to what `--display N` selects (unlike pygame's separate list).
+    if args.list_monitors {
+        print_monitors(&event_loop);
+        return Ok(());
+    }
+
     let proxy = event_loop.create_proxy();
     let listener = TcpListener::bind(&args.bind)?;
     let local_addr = listener.local_addr()?;
@@ -69,6 +78,7 @@ struct Args {
     x: Option<i32>,
     y: Option<i32>,
     fit_mode: FitMode,
+    list_monitors: bool,
 }
 
 impl Args {
@@ -82,6 +92,7 @@ impl Args {
             x: None,
             y: None,
             fit_mode: FitMode::Contain,
+            list_monitors: false,
         };
 
         while let Some(arg) = values.next() {
@@ -89,6 +100,7 @@ impl Args {
                 "--bind" => args.bind = next_value(&mut values, "--bind")?,
                 "--display" => args.display = next_value(&mut values, "--display")?.parse()?,
                 "--fullscreen" => args.fullscreen = true,
+                "--list-monitors" => args.list_monitors = true,
                 "--width" => args.width = next_value(&mut values, "--width")?.parse()?,
                 "--height" => args.height = next_value(&mut values, "--height")?.parse()?,
                 "--x" => args.x = Some(next_value(&mut values, "--x")?.parse()?),
@@ -132,6 +144,23 @@ fn next_value(
         .ok_or_else(|| format!("missing value for {flag}").into())
 }
 
+fn print_monitors(event_loop: &EventLoop<RendererEvent>) {
+    for (index, monitor) in event_loop.available_monitors().enumerate() {
+        let position = monitor.position();
+        let size = monitor.size();
+        let name = monitor.name().unwrap_or_default();
+        // Tab-separated so monitor names with spaces survive parsing; name is last.
+        println!(
+            "MONITOR\t{index}\t{}\t{}\t{}\t{}\t{}\t{name}",
+            position.x,
+            position.y,
+            size.width,
+            size.height,
+            monitor.scale_factor(),
+        );
+    }
+}
+
 fn parse_fit_mode(value: &str) -> Result<FitMode, Box<dyn Error>> {
     match value {
         "contain" => Ok(FitMode::Contain),
@@ -149,6 +178,7 @@ projector-controller-renderer
 
 Options:
   --bind HOST:PORT       TCP bind address for frame IPC (default: 127.0.0.1:0)
+  --list-monitors       print monitors (index/x/y/width/height/scale/name) and exit
   --display N           target monitor index (default: 0)
   --fullscreen          open borderless fullscreen on the target monitor
   --width N             window width in physical pixels (default: 1280)

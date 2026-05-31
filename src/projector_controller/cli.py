@@ -3,17 +3,23 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from projector_controller import ProjectionWindow, list_displays
+from projector_controller import ProjectionWindow, list_displays, list_renderer_monitors
 from projector_controller.config import Point, Size
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="projector-controller")
     parser.add_argument(
-        "--list-displays", action="store_true", help="print known displays and exit"
+        "--list-displays", action="store_true", help="print pygame displays and exit"
+    )
+    parser.add_argument(
+        "--list-monitors",
+        action="store_true",
+        help="print Rust renderer monitors (authoritative for --display) and exit",
     )
     parser.add_argument("--image", type=Path, help="image file to project")
     parser.add_argument("--display", type=int, default=0, help="target display index")
@@ -65,6 +71,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         for display in list_displays():
             name = f" {display.name}" if display.name else ""
             print(f"{display.index}: {display.size.width}x{display.size.height}{name}")
+        return 0
+
+    if args.list_monitors:
+        try:
+            monitors = list_renderer_monitors()
+        except FileNotFoundError as error:
+            print(error, file=sys.stderr)
+            return 1
+        for monitor in monitors:
+            name = f" {monitor.name}" if monitor.name else ""
+            print(
+                f"{monitor.index}: {monitor.width}x{monitor.height} "
+                f"@({monitor.x},{monitor.y}) scale={monitor.scale}{name}"
+            )
         return 0
 
     position, size = placement_from_args(args)

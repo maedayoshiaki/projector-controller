@@ -5,7 +5,7 @@
 
 - **Last updated:** 2026-05-31
 - **Current focus:** Rust / GPU renderer MVP を実装。外部 display / fullscreen 実機検証待ち
-- **Working branch:** feature/projtest-001
+- **Working branch:** feature/rust-realtime-renderer
 
 ---
 
@@ -19,10 +19,13 @@
 - 動画ファイル再生ではなく、Rust renderer によるリアルタイムフレーム投影へ方針転換する。
 - Rust `projector-controller-renderer`（`winit` + `wgpu`）と Python `RealtimeProjection` を追加済み。
 - Python から Rust renderer を起動し、RGBA frame を 1 枚送る windowed smoke test は成功。
+- これまで未コミットだった Rust renderer + `RealtimeProjection` 一式を `feature/rust-realtime-renderer` にコミット済み（`b5f252d`）。
+- renderer の stdout/stderr をバックグラウンド drain する修正を追加（パイプバッファ満杯による write ブロック対策）。
+- display 番号の backend 間不一致に対応: realtime 経路は Rust renderer(winit) 列挙を権威とし、`--list-monitors` / `list_renderer_monitors()` を追加。単一モニタでは pygame 列挙と番号・物理解像度が一致することを実機確認。
 
 ## Next
 
-- `docs/EXPERIMENTS.md` の `projtest-002` として Rust renderer の外部 display / fullscreen / DPI / 座標挙動を実機確認する。
+- `docs/EXPERIMENTS.md` の `projtest-002` として Rust renderer の外部 display / fullscreen / DPI / 座標挙動を実機確認する。あわせて `M0`（pygame と winit の display 番号一致）を複数モニタで確認する。
 - 必要なら frame IPC を copy-based TCP から shared memory / ring buffer に移す。
 - 設定ファイル形式を導入するか判断する。
 
@@ -32,6 +35,8 @@
 
 ## Recently Done
 
+- 2026-05-31 未コミットだった Rust/wgpu realtime 投影一式を `feature/rust-realtime-renderer` にコミット（`main` 上に放置されていたのを解消）。検証スタック（ruff/mypy/pytest, cargo fmt/clippy/test）を全通過。
+- 2026-05-31 renderer の stdout/stderr drain 修正、および display 番号の権威化（`--list-monitors` 追加）を実装・コミット。pytest 19 passed。
 - 2026-05-31 実機テストで Windows DPI 200% による表示サイズ崩れを発見・修正。`SDL_WINDOWS_DPI_AWARENESS=permonitorv2` で物理ピクセル化（fullscreen は `pygame.FULLSCREEN` 方式のまま）。一度 desktop-style borderless に変えたが指示に反したため revert した。
 - 2026-05-31 ユーザー報告により、Windows DPI 対応後の実機検証が成功したことを確認。
 - 2026-05-31 動画ファイル再生案を見直し、Rust で GPU 性能を引き出すリアルタイムフレーム投影設計へ切り替える方針を確認。
