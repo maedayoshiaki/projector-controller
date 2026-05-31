@@ -40,6 +40,7 @@
 
 ## Recently Done
 
+- 2026-05-31 リポジトリ全体レビュー（多観点＋反証検証）を実施。確定した doc-mismatch のうち人間判断不要なものを修正: PLANS Phase-1 を `Done` 化、Related の旧 `crates/` パスを `packages/renderer/` に、初期スケッチの未実装 stride / 「shader uniform」記述を実装（tightly-packed / quad 頂点更新）に整合、AGENTS のツリーに `packages/renderer/` 追加・`media/` を未作成扱いに、ARCHITECTURE の `DisplaySpec` 記述を実装（index/name/size）に整合。レビューで挙がった大物（CI 不在、realtime のフロー制御＆生存通知、テスト空白）は人間判断待ち。
 - 2026-05-31 配布準備 Phase 1（2 パッケージ分割）を実装・main にマージ（`f579a16`）。続けてローカル PyPI 配布リハーサルを実施し、`pip install "projector-controller[realtime]"` が index 経由で解決〜実フレーム投影まで完走することを実証（一時環境のみ・コミットなし）。
 - 2026-05-31 配布準備 Phase 0（土台固め）を実装・main にマージ（`3c2b90b`）。
 - 2026-05-31 未コミットだった Rust/wgpu realtime 投影一式を `feature/rust-realtime-renderer` にコミット（`main` 上に放置されていたのを解消）。検証スタック（ruff/mypy/pytest, cargo fmt/clippy/test）を全通過。

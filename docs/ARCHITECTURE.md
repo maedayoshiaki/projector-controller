@@ -113,7 +113,7 @@ graph TD
 
 ## Key Data Concepts
 
-- `DisplaySpec`: ディスプレイ番号、名前、原点座標、解像度、スケールなど。
+- `DisplaySpec`: ディスプレイ番号、名前、解像度（pygame 経路の `list_displays()` が返す）。原点座標・スケールは持たない（pygame に原点取得 API が無いため。realtime 経路の `RendererMonitor` が x/y/scale を持つ）。
 - `WindowGeometry`: ウィンドウ左上座標、幅、高さ（位置＋サイズをまとめた値。`geometry=` 引数や fit 計算で使う）。
 - `Point` / `Size`: ウィンドウの絶対座標と画素サイズ。`ProjectionConfig` は `position`（`None`=中央）と `size` を保持する。
 - `ProjectionConfig`: フルスクリーン、対象ディスプレイ、位置、サイズ、背景色、fit mode など。
