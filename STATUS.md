@@ -25,12 +25,12 @@
 - モジュール化 / 配布準備の Phase 0（土台固め）を実装: `find_renderer_binary()` を env var `PROJECTOR_CONTROLLER_RENDERER` → PATH → repo target の順で探索するよう堅牢化、pyproject に classifiers/keywords/urls を追加、import 健全性と renderer 発見のテストを追加。fresh venv に wheel を install し別ディレクトリから import・公開 API 利用・RealtimeProjection 構築を実機確認。`uv build` で wheel/sdist 生成も確認。
 - 配布準備 Phase 1（2 パッケージ分割）を実装: renderer crate を `packages/renderer/`（自己完結 maturin bin パッケージ）へ移動し cargo workspace を解体。本体 pyproject に `[realtime]` extras を追加。`find_renderer_binary()` に sysconfig scripts ディレクトリ探索を追加（PoC 改善点）。本体 wheel + renderer wheel を fresh venv に install し、env var なし・リポジトリ外から sysconfig 経由で renderer 解決 → 実フレーム投影まで完走を実機確認。CLI（console_script）は本体に残し維持。
 - 事前に PoC（`poc/maturin-bundle`, abandon 済み）で maturin bin 同梱の可否と「console_script と同居不可」の制約を確定し、2 パッケージ分割を採用。
+- ローカル PyPI 配布リハーサルを実施（一時環境のみ・コミットなし）。両パッケージの wheel/sdist をビルド → `twine check` PASSED → ローカル `pypiserver` の simple index に両パッケージ列挙 → fresh venv で `pip install --index-url http://localhost:... "projector-controller[realtime]"` が解決成功（本体・renderer・pygame を取得、INSTALL exit 0）→ index install 後に env var/PATH なし・リポジトリ外から sysconfig 経由で renderer 解決 → 実フレーム投影まで完走（E2E exit 0）。`pip install "projector-controller[realtime]"` 一発で realtime が動くことを手元で実証。
 
 ## Next
 
 - `docs/EXPERIMENTS.md` の `projtest-002` として Rust renderer の外部 display / fullscreen / DPI / 座標挙動を実機確認する。あわせて `M0`（pygame と winit の display 番号一致）を複数モニタで確認する。
-- 配布準備 Phase 1: build backend を maturin 化し、Rust renderer を wheel 同梱する（ビルド構成変更＋新規依存のため人間確認後に着手）。
-- 配布準備 Phase 2: GitHub Actions でクロスプラットフォーム wheel をビルドし PyPI 公開（CI シークレット必要）。
+- 配布準備 Phase 2: GitHub Actions でクロスプラットフォーム wheel をビルドし PyPI 公開（CI シークレット必要）。ローカルリハーサルの申し送りを反映する: (1) 2 パッケージ両方を公開しないと `[realtime]` が壊れる、(2) 公開順は renderer → 本体、(3) maturin の出力先フラグは `--out`（`--out-dir` 不可）、(4) renderer wheel は OS/アーキ別なので CI でマルチプラットフォームビルドが必須。
 - 必要なら frame IPC を copy-based TCP から shared memory / ring buffer に移す。
 - 設定ファイル形式を導入するか判断する。
 
@@ -40,6 +40,8 @@
 
 ## Recently Done
 
+- 2026-05-31 配布準備 Phase 1（2 パッケージ分割）を実装・main にマージ（`f579a16`）。続けてローカル PyPI 配布リハーサルを実施し、`pip install "projector-controller[realtime]"` が index 経由で解決〜実フレーム投影まで完走することを実証（一時環境のみ・コミットなし）。
+- 2026-05-31 配布準備 Phase 0（土台固め）を実装・main にマージ（`3c2b90b`）。
 - 2026-05-31 未コミットだった Rust/wgpu realtime 投影一式を `feature/rust-realtime-renderer` にコミット（`main` 上に放置されていたのを解消）。検証スタック（ruff/mypy/pytest, cargo fmt/clippy/test）を全通過。
 - 2026-05-31 renderer の stdout/stderr drain 修正、および display 番号の権威化（`--list-monitors` 追加）を実装・コミット。pytest 19 passed。
 - 2026-05-31 実機テストで Windows DPI 200% による表示サイズ崩れを発見・修正。`SDL_WINDOWS_DPI_AWARENESS=permonitorv2` で物理ピクセル化（fullscreen は `pygame.FULLSCREEN` 方式のまま）。一度 desktop-style borderless に変えたが指示に反したため revert した。

@@ -26,6 +26,7 @@
 | 2026-05-31 | 配布は 2 パッケージ分割: 本体 `projector-controller`(pure-Python universal wheel, hatchling, console_script) + `projector-controller-renderer`(OS 別 wheel, maturin bin)。本体 `[realtime]` extras で renderer を同 version pin | maturin bin は console_script と同居不可("Defining scripts and working with a binary doesn't mix well")。maturin wheel は OS 別なので本体を maturin 化すると pygame だけの利用者にも OS 別 wheel を強いる。分割で各々が自然なビルドバックエンドを使え CLI も維持できる | pyproject.toml、packages/renderer/、docs/ARCHITECTURE.md |
 | 2026-05-31 | renderer crate は `packages/renderer/`(自己完結 maturin bin)に置き cargo workspace を解体 | PyPI 独立パッケージとして sdist/editable/CI が素直になる。crate は 1 つなので workspace を失う不利益なし | packages/renderer/、Cargo.toml(削除) |
 | 2026-05-31 | Phase 1 受け入れ確認成功 | 本体 wheel + renderer wheel を fresh venv に install し、env var/PATH なし・リポジトリ外から sysconfig 経由で renderer 解決 → 実フレーム投影まで完走 | packages/renderer/、src/projector_controller/realtime.py |
+| 2026-05-31 | ローカル PyPI 配布リハーサル成功（実環境に最も近い検証） | 両パッケージの wheel/sdist を `pypiserver` で配信し、fresh venv で `pip install --index-url http://localhost:... "projector-controller[realtime]"` が解決成功(本体・renderer・pygame)、index install 後に sysconfig 経由で renderer 解決→実フレーム投影まで完走(E2E exit 0)。`pip install "projector-controller[realtime]"` 一発で realtime が動くことを実証 | 一時環境のみ(コミットなし)。Phase 2 の PyPI 公開手順の裏付け |
 
 ## Conventions
 
@@ -48,6 +49,8 @@
 - `import projector_controller` は軽量に保つ（pygame は `ProjectionWindow` 利用時に遅延ロード）。`tests/test_package.py` が「import で pygame を読まない」「公開 API が出ている」を保証する。壊したら配布物の使い勝手が落ちる。
 - パッケージ検証は fresh venv に `uv build` の wheel を install し、リポジトリ外ディレクトリから import して行う（ソースツリーからの import と混同しない）。この環境のツール出力が破損しやすいので、判定は print ではなく exit code に載せる（[[tool-output-corruption]]）。
 - maturin `bin` バインディングは `[project.scripts]`（console_script）と同居できない。Rust バイナリと CLI entry point を両方出したいなら別パッケージに分ける。
+- PyPI 公開（Phase 2）の必須要件（ローカルリハーサルで確定）: (1) 本体と renderer の **2 パッケージ両方を公開しないと `[realtime]` extras が解決できず壊れる**、(2) 公開順は **renderer → 本体**（依存解決の順）、(3) maturin の出力先フラグは **`--out`**（`--out-dir` は不可）、(4) renderer wheel は **OS/アーキ別**なので CI でマルチプラットフォームビルドが必須。
+- ローカル PyPI 配布リハーサルの手順: 両パッケージの wheel/sdist を 1 つの dist ディレクトリに集め、`uv run --no-project --with pypiserver pypi-server run -p <port> <dist>` で配信、fresh venv で `pip install --index-url http://localhost:<port>/simple/ --extra-index-url https://pypi.org/simple/ --trusted-host localhost "projector-controller[realtime]"`。`twine check <dist>/*` でメタデータも確認できる。
 - workspace 解体後は `cargo ... -p <crate>` が使えない。`cargo <cmd> --manifest-path packages/renderer/Cargo.toml` を使う（README/EXPERIMENTS/ARCHITECTURE のコマンド例も更新済み）。
 - maturin の純バイナリパッケージ（Python モジュールを含まない）は `python-source` / `module-name` を設定しない。設定すると「python module が存在しない」エラーになる（mixed project 限定の設定）。
 
