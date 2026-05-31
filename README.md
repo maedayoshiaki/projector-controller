@@ -39,6 +39,7 @@ with ProjectionWindow(display=1, fullscreen=True, background="black") as window:
 ```python
 from projector_controller import ProjectionWindow
 
+# position 省略 -> display 0 の中央。position=(x, y) でデスクトップ絶対座標。
 with ProjectionWindow(display=0, fullscreen=False, size=(1280, 720)) as window:
     window.show_test_pattern()
     window.wait()
@@ -62,6 +63,15 @@ uv run projector-controller --display 0 --width 1280 --height 720 --duration 5
 
 ```powershell
 uv run projector-controller --display 1 --fullscreen
+```
+
+ウィンドウ位置を指定する場合（`--x/--y` はデスクトップ絶対座標。省略すると `--display` の中央）:
+
+```powershell
+# display 1 の中央にウィンドウ表示
+uv run projector-controller --display 1 --width 1280 --height 720
+# デスクトップ絶対座標 (1500, 100) に表示
+uv run projector-controller --x 1500 --y 100 --width 800 --height 600
 ```
 
 画像ファイルを表示する場合:

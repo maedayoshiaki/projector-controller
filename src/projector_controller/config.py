@@ -96,7 +96,11 @@ class ProjectionConfig:
 
     display: int | None = 0
     fullscreen: bool = False
-    geometry: WindowGeometry = field(default_factory=lambda: WindowGeometry(0, 0, 1280, 720))
+    # position is None means "let the backend center the window on the target display".
+    # A concrete Point means absolute desktop coordinates (origin = top-left of the
+    # whole desktop). See docs/ARCHITECTURE.md "Window Placement".
+    position: Point | None = None
+    size: Size = field(default_factory=lambda: Size(1280, 720))
     fit_mode: FitMode = "contain"
     background: ColorValue = "black"
     borderless: bool = False

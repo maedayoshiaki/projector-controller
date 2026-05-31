@@ -3,16 +3,18 @@
 **現在**を扱うファイル。「今この瞬間、何がどうなっているか」のスナップショット。
 各セッションの最初に読み、最後に更新する。確定した事項は `MEMORY.md` へ昇格する。
 
-- **Last updated:** 2026-05-30 18:01
-- **Current focus:** pygame MVP 実装完了。次は実機投影テスト
-- **Working branch:** main
+- **Last updated:** 2026-05-31
+- **Current focus:** ウィンドウ位置(x,y)の仕様確定と実装が完了。次は実機投影テスト
+- **Working branch:** feature/window-position
 
 ---
 
 ## Now
 
 - pygame backend の MVP 実装は完了。
-- 関連プラン: `PLANS.md` の "Plan: pygame MVP 実装" は `Done`。
+- ウィンドウ位置仕様を確定し実装: `--x/--y` はデスクトップ絶対座標、省略時は `--display` の中央。
+  これに伴い、windowed 時に常に (0,0) へ固定されていた既存バグを修正。
+- 関連プラン: `PLANS.md` の "Plan: pygame MVP 実装" は `Done`、"Plan: ウィンドウ位置(x,y)" も `Done`。
 
 ## Next
 
@@ -27,6 +29,7 @@
 
 ## Recently Done
 
+- 2026-05-31 ウィンドウ位置(x,y)を「絶対座標＋display中央デフォルト」で確定・実装。`ProjectionConfig` を `geometry` から `position`/`size` へ変更し、windowed の (0,0) 固定バグを修正。テスト・README・ARCHITECTURE を更新。
 - 2026-05-30 テンプレート文書を整理し、README、AGENTS、設計、用語、表示設計、投影テストログを projector-controller 向けに更新。
 - 2026-05-30 テンプレート専用の `TEMPLATE_GUIDE.md` を削除し、ADR テンプレートをプロジェクト用に調整。
 - 2026-05-30 Python 3.12 + uv 環境、`ProjectionWindow` API、pygame backend、CLI、examples、tests を追加。

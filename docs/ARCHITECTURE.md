@@ -90,8 +90,9 @@ graph TD
 ## Key Data Concepts
 
 - `DisplaySpec`: ディスプレイ番号、名前、原点座標、解像度、スケールなど。
-- `WindowGeometry`: ウィンドウ左上座標、幅、高さ。
-- `ProjectionConfig`: フルスクリーン、対象ディスプレイ、背景色、表示倍率など。
+- `WindowGeometry`: ウィンドウ左上座標、幅、高さ（位置＋サイズをまとめた値。`geometry=` 引数や fit 計算で使う）。
+- `Point` / `Size`: ウィンドウの絶対座標と画素サイズ。`ProjectionConfig` は `position`（`None`=中央）と `size` を保持する。
+- `ProjectionConfig`: フルスクリーン、対象ディスプレイ、位置、サイズ、背景色、fit mode など。
 - `FitMode`: `contain`, `cover`, `stretch`, `native` などの表示方法。
 - `MediaSource`: 静止画、動画、生成フレームなどの入力。
 

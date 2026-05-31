@@ -37,25 +37,30 @@ class PygameProjectionBackend:
         if self._is_open:
             return
 
+        display = self._config.display if self._config.display is not None else 0
+        # Only force an absolute position when the user asked for one. With no position,
+        # passing ``display=N`` lets SDL center the window on that display (its default),
+        # which avoids the previous bug of always pinning windows to (0, 0).
+        place_absolute = not self._config.fullscreen and self._config.position is not None
         previous_window_pos = os.environ.get("SDL_VIDEO_WINDOW_POS")
-        if not self._config.fullscreen:
+        if place_absolute:
+            assert self._config.position is not None
             os.environ["SDL_VIDEO_WINDOW_POS"] = (
-                f"{self._config.geometry.x},{self._config.geometry.y}"
+                f"{self._config.position.x},{self._config.position.y}"
             )
 
         try:
             pygame.init()
             pygame.font.init()
             flags = self._window_flags()
-            size = (0, 0) if self._config.fullscreen else self._config.geometry.size.as_tuple()
-            display = self._config.display if self._config.display is not None else 0
+            size = (0, 0) if self._config.fullscreen else self._config.size.as_tuple()
             self._surface = pygame.display.set_mode(size, flags=flags, display=display)
             pygame.display.set_caption("projector-controller")
             self._surface.fill(self._config.background)
             pygame.display.flip()
             self._is_open = True
         finally:
-            if not self._config.fullscreen:
+            if place_absolute:
                 if previous_window_pos is None:
                     os.environ.pop("SDL_VIDEO_WINDOW_POS", None)
                 else:

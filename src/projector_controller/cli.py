@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from projector_controller import ProjectionWindow, list_displays
-from projector_controller.config import WindowGeometry
+from projector_controller.config import Point, Size
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -21,8 +21,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--fullscreen", action="store_true", help="open fullscreen on the target display"
     )
     parser.add_argument("--borderless", action="store_true", help="open a borderless window")
-    parser.add_argument("--x", type=int, default=0, help="window x position in desktop coordinates")
-    parser.add_argument("--y", type=int, default=0, help="window y position in desktop coordinates")
+    parser.add_argument(
+        "--x",
+        type=int,
+        default=None,
+        help="window x in absolute desktop coordinates (omit to center on --display)",
+    )
+    parser.add_argument(
+        "--y",
+        type=int,
+        default=None,
+        help="window y in absolute desktop coordinates (omit to center on --display)",
+    )
     parser.add_argument("--width", type=int, default=1280, help="window width")
     parser.add_argument("--height", type=int, default=720, help="window height")
     parser.add_argument(
@@ -35,6 +45,18 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def placement_from_args(args: argparse.Namespace) -> tuple[Point | None, Size]:
+    """Resolve --x/--y/--width/--height into (position, size).
+
+    Omitting both --x and --y yields position=None, i.e. center on the target display.
+    """
+
+    size = Size(args.width, args.height)
+    if args.x is None and args.y is None:
+        return None, size
+    return Point(args.x or 0, args.y or 0), size
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -45,11 +67,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"{display.index}: {display.size.width}x{display.size.height}{name}")
         return 0
 
-    geometry = WindowGeometry(args.x, args.y, args.width, args.height)
+    position, size = placement_from_args(args)
     with ProjectionWindow(
         display=args.display,
         fullscreen=args.fullscreen,
-        geometry=geometry,
+        position=position,
+        size=size,
         fit_mode=args.fit_mode,
         borderless=args.borderless,
     ) as window:

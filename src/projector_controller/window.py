@@ -16,6 +16,11 @@ from projector_controller.config import (
     WindowGeometry,
 )
 
+# Placement is expressed by (position, size). ``position is None`` asks the backend to
+# center the window on the target display; a concrete Point is absolute desktop
+# coordinates. The legacy ``geometry`` argument, when given, is treated as an explicit
+# position + size (it cannot express "centered").
+
 
 class ProjectionWindow:
     """High-level projection window API.
@@ -37,10 +42,14 @@ class ProjectionWindow:
         borderless: bool = False,
         backend: str = "pygame",
     ) -> None:
+        resolved_position, resolved_size = _resolve_placement(
+            geometry=geometry, position=position, size=size
+        )
         self.config = ProjectionConfig(
             display=display,
             fullscreen=fullscreen,
-            geometry=geometry or _make_geometry(position=position, size=size),
+            position=resolved_position,
+            size=resolved_size,
             fit_mode=fit_mode,
             background=background,
             borderless=borderless,
@@ -98,11 +107,23 @@ class ProjectionWindow:
         return PygameProjectionBackend(self.config)
 
 
-def _make_geometry(
+def _resolve_placement(
     *,
+    geometry: WindowGeometry | None,
     position: Point | tuple[int, int] | None,
     size: Size | tuple[int, int],
-) -> WindowGeometry:
-    point = position if isinstance(position, Point) else Point.from_tuple(position or (0, 0))
-    dimensions = size if isinstance(size, Size) else Size.from_tuple(size)
-    return WindowGeometry.from_position_size(point, dimensions)
+) -> tuple[Point | None, Size]:
+    """Resolve constructor arguments into (position, size).
+
+    ``geometry`` (legacy) wins and is an explicit position. Otherwise ``position`` is
+    used as-is: ``None`` keeps the centered-on-display default.
+    """
+
+    if geometry is not None:
+        return geometry.position, geometry.size
+
+    resolved_position = (
+        position if position is None or isinstance(position, Point) else Point.from_tuple(position)
+    )
+    resolved_size = size if isinstance(size, Size) else Size.from_tuple(size)
+    return resolved_position, resolved_size
