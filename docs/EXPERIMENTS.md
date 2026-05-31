@@ -62,8 +62,8 @@ uv run projector-controller --list-displays
 ```
 
 - **Expected:** 接続中のディスプレイが番号付きで一覧表示される。どの番号が外部モニタか確認する。
-- **Result:**
-- **どちらが外部モニタ:** display ___
+- **Result:** ユーザー報告により、実機検証は完了し期待通り動作したことを確認。
+- **どちらが外部モニタ:** 詳細未記録
 
 #### T1: 指定ディスプレイ中央に windowed 表示（位置省略 → 中央）
 
@@ -73,8 +73,8 @@ uv run projector-controller --display N --width 1280 --height 720 --duration 8
 ```
 
 - **Expected:** 外部モニタの中央付近に 1280x720 のウィンドウが開き、テストパターンが出る。ラベルが `display=N 1280x720 windowed`。
-- **Result:**
-- **Issues:**（中央に出たか／別画面に出ていないか／枠の有無）
+- **Result:** ユーザー報告により成功。
+- **Issues:** 詳細未記録。
 
 #### T2: デスクトップ絶対座標に windowed 表示
 
@@ -84,8 +84,8 @@ uv run projector-controller --x 1500 --y 100 --width 800 --height 600 --duration
 ```
 
 - **Expected:** デスクトップ絶対座標 (1500, 100) にウィンドウ左上が来る。外部モニタが主モニタの右側にある等、配置によって出る画面が変わる。
-- **Result:**（実際の左上座標・出た画面）
-- **Issues:**（座標ずれ／意図した画面に出たか）
+- **Result:** ユーザー報告により成功。
+- **Issues:** 詳細未記録。
 
 #### T3: fullscreen 表示
 
@@ -94,8 +94,8 @@ uv run projector-controller --display N --fullscreen --duration 8
 ```
 
 - **Expected:** 外部モニタ全体を覆う。枠・タイトルバー・OS カーソルが投影面に出ない。ラベルは `display=N <実解像度> fullscreen`。
-- **Result:**（実解像度の表示・全体を覆ったか）
-- **Issues:**（ちらつき／黒余白／カーソル表示／別画面が covered されたか）
+- **Result:** ユーザー報告により成功。
+- **Issues:** 詳細未記録。
 
 #### T4: fit mode（任意・画像を用意できる場合）
 
@@ -108,9 +108,30 @@ uv run projector-controller --image path\to\image.png --display N --fit-mode nat
 ```
 
 - **Expected:** contain=全体が収まる（余白可）, cover=画面を覆う（はみ出し可）, stretch=縦横比無視で全面, native=原寸中央。
-- **Result:**
-- **Issues:**（補間のにじみ／中央寄せのずれ）
+- **Result:** 詳細未記録。
+- **Issues:** 詳細未記録。
 
 ### Conclusion
 
--（テスト後に記入。位置・fullscreen・fit が仕様通りか、実機特有の問題、次に直すべき点）
+- 2026-05-31 ユーザー報告により、Windows DPI 対応後の実機検証は完了し、期待通り動作したことを確認した。
+- 詳細な display 番号、座標、機材情報は未記録。必要になったら次回の投影テストで追記する。
+
+## projtest-002: Rust GPU renderer の実機確認
+
+- **Date:** 2026-05-31（local windowed smoke のみ実施。外部 display / fullscreen は未実施）
+- **Commit:** `git hash`
+- **Machine / OS:** Windows など
+- **Projector / Display:** 機種名、接続方式、OS 上の display 番号
+- **Resolution / Scaling:** 物理解像度、DPI スケール
+- **Backend:** Rust renderer (`winit` + `wgpu`)
+- **Media:** `examples/realtime_frames.py` 生成 RGBA frame
+- **Window Settings:** display, x, y, width, height, fullscreen
+- **Command:**
+  ```powershell
+  cargo build -p projector-controller-renderer
+  uv run python examples\realtime_frames.py
+  ```
+- **Expected:** Rust renderer window が開き、生成グラデーション frame が滑らかに更新される。
+- **Result:** local windowed smoke として、Python `RealtimeProjection` から Rust renderer を起動し、64x64 RGBA frame を 320x240 window に送信して終了できた。
+- **Issues:** 外部 display / fullscreen / DPI / 座標挙動は未確認。
+- **Conclusion:** Rust renderer の最小起動と frame IPC は動作。pygame backend と fullscreen 方式が異なるため、display 番号・fullscreen・DPI・座標挙動を改めて確認する。

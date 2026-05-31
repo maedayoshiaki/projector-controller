@@ -1,0 +1,10 @@
+[package]
+name = "projector-controller-renderer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bytemuck = { version = "1.24.0", features = ["derive"] }
+pollster = "0.3.0"
+wgpu = "0.19.4"
+winit = "0.29.15"

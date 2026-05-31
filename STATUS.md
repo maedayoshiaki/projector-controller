@@ -4,7 +4,7 @@
 各セッションの最初に読み、最後に更新する。確定した事項は `MEMORY.md` へ昇格する。
 
 - **Last updated:** 2026-05-31
-- **Current focus:** 実機テストで判明した Windows DPI スケーリング問題を修正。再テスト待ち
+- **Current focus:** Rust / GPU renderer MVP を実装。外部 display / fullscreen 実機検証待ち
 - **Working branch:** feature/projtest-001
 
 ---
@@ -14,22 +14,28 @@
 - pygame backend の MVP 実装は完了。
 - ウィンドウ位置仕様を確定し実装: `--x/--y` はデスクトップ絶対座標、省略時は `--display` の中央。
   これに伴い、windowed 時に常に (0,0) へ固定されていた既存バグを修正。
+- 実機検証は完了し、Windows DPI 対応後の display / fullscreen / windowed 表示は期待通り動作した。
 - 関連プラン: `PLANS.md` の "Plan: pygame MVP 実装" は `Done`、"Plan: ウィンドウ位置(x,y)" も `Done`。
+- 動画ファイル再生ではなく、Rust renderer によるリアルタイムフレーム投影へ方針転換する。
+- Rust `projector-controller-renderer`（`winit` + `wgpu`）と Python `RealtimeProjection` を追加済み。
+- Python から Rust renderer を起動し、RGBA frame を 1 枚送る windowed smoke test は成功。
 
 ## Next
 
-- 実機プロジェクタまたは外部ディスプレイで `uv run projector-controller --display 1 --fullscreen` を試す。
-- 実機検証結果を `docs/EXPERIMENTS.md` に `projtest-001` として記録する。
-- 動画再生を pygame で拡張するか、PySide6 / Qt を検討するか決める。
+- `docs/EXPERIMENTS.md` の `projtest-002` として Rust renderer の外部 display / fullscreen / DPI / 座標挙動を実機確認する。
+- 必要なら frame IPC を copy-based TCP から shared memory / ring buffer に移す。
 - 設定ファイル形式を導入するか判断する。
 
 ## Blocked
 
-- 実機投影での fullscreen / 座標挙動確認 — **理由:** DPI 対応を実装済み（fullscreen は `pygame.FULLSCREEN` 方式を維持）。外部モニタで projtest-001 を再実行し結果記入待ち（プロジェクタは未接続）。
+- Rust renderer の外部 display / fullscreen 実機確認 — **理由:** local windowed smoke test は成功。winit borderless fullscreen は pygame fullscreen と方式が異なるため、プロジェクタまたは外部モニタで再検証が必要。
 
 ## Recently Done
 
 - 2026-05-31 実機テストで Windows DPI 200% による表示サイズ崩れを発見・修正。`SDL_WINDOWS_DPI_AWARENESS=permonitorv2` で物理ピクセル化（fullscreen は `pygame.FULLSCREEN` 方式のまま）。一度 desktop-style borderless に変えたが指示に反したため revert した。
+- 2026-05-31 ユーザー報告により、Windows DPI 対応後の実機検証が成功したことを確認。
+- 2026-05-31 動画ファイル再生案を見直し、Rust で GPU 性能を引き出すリアルタイムフレーム投影設計へ切り替える方針を確認。
+- 2026-05-31 Rust renderer crate、TCP frame protocol、Python `RealtimeProjection`、`examples/realtime_frames.py` を追加。windowed smoke test 成功。
 - 2026-05-31 ウィンドウ位置(x,y)を「絶対座標＋display中央デフォルト」で確定・実装。`ProjectionConfig` を `geometry` から `position`/`size` へ変更し、windowed の (0,0) 固定バグを修正。テスト・README・ARCHITECTURE を更新。
 - 2026-05-30 テンプレート文書を整理し、README、AGENTS、設計、用語、表示設計、投影テストログを projector-controller 向けに更新。
 - 2026-05-30 テンプレート専用の `TEMPLATE_GUIDE.md` を削除し、ADR テンプレートをプロジェクト用に調整。
@@ -39,8 +45,8 @@
 
 ## Open Questions for the Human
 
-- [ ] 動画再生で音声を扱う必要があるか。
-- [ ] 動画再生を pygame で続けるか、PySide6 / Qt などへ広げるか。
+- [ ] 目標解像度 / FPS / 許容遅延をどこに置くか。
+- [ ] copy-based TCP で足りない場合、shared memory / ring buffer をどのタイミングで導入するか。
 - [ ] 設定ファイル形式を導入するか。導入する場合は TOML / YAML / JSON のどれにするか。
 
 ## Environment Notes

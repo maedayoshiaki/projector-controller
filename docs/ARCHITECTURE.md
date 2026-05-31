@@ -1,19 +1,21 @@
 # ARCHITECTURE.md — 設計方針
 
-プロジェクタ投影用 Python ライブラリの設計メモ。初期実装では Python 3.12 + uv、`ProjectionWindow` API、pygame / SDL backend を採用する。
+プロジェクタ投影用 Python ライブラリの設計メモ。初期実装では Python 3.12 + uv、`ProjectionWindow` API、pygame / SDL backend を採用した。リアルタイムフレーム投影は Rust / wgpu renderer へ切り替える。
 
 ## Design Goals
 
 - Python から画像・映像の投影を呼び出せる。
 - 投影ウィンドウの位置、サイズ、対象ディスプレイ、フルスクリーン表示を明示できる。
-- GUI / 動画再生バックエンドを後から差し替えられる。
+- GUI / レンダリングバックエンドを後から差し替えられる。
+- GPU がある PC では GPU を使ってリアルタイムフレームを投影できる。
 - 現場ごとの投影条件を記録し、再現しやすくする。
 - 最初は小さく実装し、プロジェクションマッピングや補正は必要になってから拡張する。
 
 ## Constraints
 
-- 公開 API は `ProjectionWindow` を入口に小さく始める。
-- 初期 backend は pygame / SDL。将来差し替えられるよう adapter に隔離する。
+- 静止画・テストパターン用の公開 API は `ProjectionWindow` を入口に小さく始める。
+- リアルタイムフレーム投影の公開 API は `RealtimeProjection` を入口にする。
+- 初期 backend は pygame / SDL。高頻度フレーム投影は Rust / wgpu renderer に分離する。
 - Windows 環境での利用を当面の主対象にするが、OS 固有処理は可能な範囲で adapter に隔離する。
 - 大容量の画像・動画素材はリポジトリに含めない。
 
@@ -35,6 +37,22 @@ backend adapters
 OS / window system / media library
 ```
 
+リアルタイム投影は Rust renderer process を別に持つ。
+
+```text
+Python frame producer
+        |
+RealtimeProjection facade
+        |
+TCP frame protocol (copy-based MVP)
+        |
+Rust renderer process
+        |
+winit window + wgpu device + shader
+        |
+GPU / display
+```
+
 ## Public API Decision
 
 | 案 | 概要 | 長所 | 短所 |
@@ -53,8 +71,10 @@ OS / window system / media library
 | B | SDL / pygame 系 | フルスクリーン、ディスプレイ選択、イベント処理 | 高度な動画再生は別途検討が必要 |
 | C | Qt / PySide 系 | ウィンドウ制御、UI、動画表示をまとめやすい | 依存が重くなりやすい |
 | D | Web / browser 系 | HTML / CSS / video を使える | Python だけで完結しにくい |
+| E | Rust / wgpu 系 | GPU を使うリアルタイムフレーム投影、shader 補正 | Rust 実装と Python 連携が必要 |
 
-採用案は B。投影ウィンドウ、display 指定、fullscreen の検証を先に固めるため。バックエンドは adapter に閉じ込め、公開 API から直接依存させない。
+静止画・テストパターンの MVP は B を採用済み。display 指定、fullscreen、DPI 対応は実機検証済み。
+リアルタイムフレーム投影は E を採用する。Rust renderer が window / event loop / GPU device を所有し、Python はフレーム投入と制御に限定する。
 
 ## Planned Module Map
 
@@ -63,20 +83,24 @@ OS / window system / media library
 | モジュール | 責務 | 依存してよい先 |
 |------|------|------|
 | `projector_controller.window` | `ProjectionWindow` 公開 API | `config`, backend adapter |
+| `projector_controller.realtime` | `RealtimeProjection` 公開 API、Rust renderer process 起動、frame IPC | `config`, Rust renderer binary |
 | `projector_controller.config` | 表示設定、ウィンドウ設定、値オブジェクト | なし |
 | `projector_controller.fit` | `contain` / `cover` / `stretch` / `native` の配置計算 | `config` |
 | `projector_controller.display` | ディスプレイ一覧の取得 | `config`, backend adapter |
 | `projector_controller.adapters` | GUI / 動画再生バックエンド固有処理 | 外部ライブラリ |
 | `projector_controller.cli` | 手動検証用 CLI | `window`, `display`, `config` |
+| `crates/projector-controller-renderer` | Rust / wgpu renderer binary | `winit`, `wgpu` |
 
 ```mermaid
 graph TD
   cli --> window
   cli --> display
   window --> adapters
+  realtime --> rust_renderer
   display --> adapters
   fit --> config
   window --> config
+  realtime --> config
 ```
 
 ## Dependency Rules
@@ -95,6 +119,21 @@ graph TD
 - `ProjectionConfig`: フルスクリーン、対象ディスプレイ、位置、サイズ、背景色、fit mode など。
 - `FitMode`: `contain`, `cover`, `stretch`, `native` などの表示方法。
 - `MediaSource`: 静止画、動画、生成フレームなどの入力。
+- `RealtimeProjection`: Rust renderer process を制御し、`submit_frame` で frame を投入する Python facade。
+- `Frame`: `RGBA8` / `BGRA8` の連続メモリ、width / height / pixel format / fit mode を持つリアルタイム入力。
+
+## Rust Realtime Renderer（決定済み: 2026-05-31）
+
+リアルタイムフレーム投影は Rust renderer binary が担当する。
+
+- Rust renderer は `winit` で window / monitor / fullscreen を管理する。
+- GPU 描画は `wgpu` を使う。`wgpu` は Windows では D3D12 / Vulkan / OpenGL などの backend を選べる。
+- Python 側は `RealtimeProjection` から renderer process を起動し、localhost TCP で frame を送る。
+- 初期 protocol は copy-based。`RGBA8` / `BGRA8` の `width * height * 4` bytes を frame ごとに送る。
+- Rust 側は GPU texture を再利用し、frame 到着ごとに texture upload して fullscreen quad で描画する。
+- `contain` / `cover` / `stretch` / `native` は Rust 側で quad 頂点を更新して適用する。
+
+理由: Python process 内で GUI event loop と GPU device を握るより、Rust renderer process に分離した方が GIL と Python 側のスケジューリング影響を受けにくい。将来 shared memory / ring buffer へ移す場合も、frame sink の境界が明確になる。
 
 ## Window Placement（決定済み: 2026-05-31）
 
@@ -130,6 +169,9 @@ fullscreen が意図しない大きさになる。これを避けるため、pyg
 全体を覆う。DPI 対応により、この (0,0) が選ぶサイズは論理値ではなく**物理解像度**になる。
 （`borderless=True` は別フラグで、枠なしウィンドウを指定サイズで開く用途。）
 
+Rust renderer の `fullscreen=True` は `winit` の borderless fullscreen を使う。pygame backend と
+実装方式が異なるため、Rust renderer の display 番号・fullscreen・座標挙動は別途実機検証する。
+
 ## Configuration Options（未確定）
 
 | 案 | 概要 | 長所 | 短所 |
@@ -144,12 +186,15 @@ fullscreen が意図しない大きさになる。これを避けるため、pyg
 
 - 設定や座標計算は純粋関数として単体テストする。
 - GUI バックエンドは adapter 単位で薄くし、可能ならモックでテストする。
+- Rust renderer は `cargo fmt` / `cargo clippy` / `cargo test` / `cargo check` で検証する。
+- Python wrapper は renderer command と frame protocol の純粋部分を単体テストする。
 - 実機プロジェクタやマルチディスプレイでしか検証できない内容は `docs/EXPERIMENTS.md` に記録する。
 - フルスクリーン、ウィンドウ位置、ディスプレイ選択は OS / 環境差が大きいため、手動検証ログを残す。
 
 ## Open Decisions
 
 - 設定ファイル形式を導入するか、導入するならどの形式にするか。
-- 動画再生と音声を pygame で拡張するか、Qt などへ広げるか。
+- Rust renderer の frame IPC を shared memory / ring buffer に進めるか。
+- 動画デコードと音声同期をどのレイヤで扱うか。
 - プロジェクションマッピングや台形補正をいつ扱うか。
 - ディスプレイ相対座標の指定（現状は絶対座標のみ。必要なら pygame-ce 移行か ctypes で対応）。

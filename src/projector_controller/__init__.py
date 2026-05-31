@@ -8,12 +8,14 @@ from projector_controller.config import (
     WindowGeometry,
 )
 from projector_controller.display import list_displays
+from projector_controller.realtime import RealtimeProjection
 from projector_controller.window import ProjectionWindow
 
 __all__ = [
     "DisplaySpec",
     "Point",
     "ProjectionConfig",
+    "RealtimeProjection",
     "ProjectionWindow",
     "Size",
     "WindowGeometry",

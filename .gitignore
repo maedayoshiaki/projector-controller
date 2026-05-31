@@ -20,6 +20,7 @@ venv/
 .ruff_cache/
 build/
 dist/
+target/
 
 # === Notebooks ===
 .ipynb_checkpoints/
