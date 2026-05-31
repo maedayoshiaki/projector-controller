@@ -1,0 +1,61 @@
+name: CI
+
+# 検証スタック（AGENTS.md §7）を push/PR で強制する最小構成。
+# クロスプラットフォーム wheel のビルド/公開は別ワークフロー（配布 Phase 2）で扱う。
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# 同一 ref で新しい run が始まったら進行中の run を打ち切る。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python (ruff / mypy / pytest)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      # uv が .python-version (3.12) を読んで Python を自動取得する。
+      - name: Sync dependencies (dev)
+        run: uv sync --dev
+      - name: Ruff format check
+        run: uv run ruff format --check .
+      - name: Ruff lint
+        run: uv run ruff check .
+      - name: Mypy
+        run: uv run mypy src tests
+      - name: Pytest
+        run: uv run pytest
+
+  rust:
+    name: Rust renderer (fmt / clippy / test)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: packages/renderer
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/renderer
+      - name: Cargo fmt check
+        run: cargo fmt --check
+      - name: Cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Cargo test
+        run: cargo test
