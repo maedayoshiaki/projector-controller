@@ -101,13 +101,29 @@ def test_find_renderer_binary_falls_back_to_path(monkeypatch: pytest.MonkeyPatch
     assert find_renderer_binary() == Path("/opt/bin/renderer")
 
 
+def test_find_renderer_binary_uses_scripts_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Simulate a wheel-installed renderer in the interpreter's scripts dir that is not
+    # on PATH — shutil.which misses it, but the sysconfig lookup should find it.
+    name = realtime._renderer_exe_name()
+    exe = tmp_path / name
+    exe.write_bytes(b"")
+    monkeypatch.delenv(_RENDERER_ENV_VAR, raising=False)
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    monkeypatch.setattr("sysconfig.get_path", lambda kind: str(tmp_path))
+
+    assert find_renderer_binary() == exe
+
+
 def test_find_renderer_binary_raises_when_absent(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(_RENDERER_ENV_VAR, raising=False)
     monkeypatch.setattr("shutil.which", lambda name: None)
-    # Ignore any locally built binary so the not-found path is exercised.
+    # Ignore the scripts dir and any locally built binary so not-found is exercised.
+    monkeypatch.setattr(realtime, "_scripts_dir_candidate", lambda name: None)
     monkeypatch.setattr(realtime, "_repo_target_candidates", lambda name: [])
 
-    with pytest.raises(FileNotFoundError, match="cargo build"):
+    with pytest.raises(FileNotFoundError, match="pip install"):
         find_renderer_binary()
 
 

@@ -8,6 +8,7 @@ import socket
 import struct
 import subprocess
 import sys
+import sysconfig
 import threading
 import time
 from collections import deque
@@ -320,9 +321,12 @@ def find_renderer_binary() -> Path:
     Search order (first hit wins):
 
     1. ``PROJECTOR_CONTROLLER_RENDERER`` env var (must exist if set, else error).
-    2. PATH via ``shutil.which`` — this finds the binary when installed from a wheel
-       (maturin ``bindings="bin"`` drops it into the venv's scripts directory).
-    3. ``target/{debug,release}`` relative to the repo, for local development.
+    2. PATH via ``shutil.which`` — finds it when the venv's scripts dir is activated.
+    3. This interpreter's ``sysconfig`` scripts dir — where the
+       ``projector-controller-renderer`` wheel installs the binary, even when the venv
+       is not on PATH (the common "just pip install and run a script" case).
+    4. ``packages/renderer/target/{debug,release}`` relative to the repo, for local
+       development with a ``cargo build`` in that package.
     """
 
     name = _renderer_exe_name()
@@ -341,14 +345,19 @@ def find_renderer_binary() -> Path:
     if on_path:
         return Path(on_path)
 
+    scripts_candidate = _scripts_dir_candidate(name)
+    if scripts_candidate is not None and scripts_candidate.exists():
+        return scripts_candidate
+
     for candidate in _repo_target_candidates(name):
         if candidate.exists():
             return candidate
 
     msg = (
-        "Rust renderer binary not found. Build it with "
-        "`cargo build -p projector-controller-renderer`, install a wheel that bundles "
-        f"it, set {_RENDERER_ENV_VAR}=<path>, or pass renderer_path=..."
+        "Rust renderer binary not found. Install it with "
+        '`pip install "projector-controller[realtime]"`, build it with '
+        "`cargo build` in packages/renderer, "
+        f"set {_RENDERER_ENV_VAR}=<path>, or pass renderer_path=..."
     )
     raise FileNotFoundError(msg)
 
@@ -361,13 +370,28 @@ def _renderer_exe_name() -> str:
     )
 
 
+def _scripts_dir_candidate(name: str) -> Path | None:
+    """Path to the binary in this interpreter's scripts dir, if resolvable.
+
+    maturin's ``bin`` bindings install the renderer as a wheel script, which lands in
+    the environment's scripts directory (``Scripts`` on Windows, ``bin`` elsewhere).
+    ``shutil.which`` misses it when that dir is not on PATH, so check it directly.
+    """
+
+    scripts = sysconfig.get_path("scripts")
+    if not scripts:
+        return None
+    return Path(scripts) / name
+
+
 def _repo_target_candidates(name: str) -> list[Path]:
     """Dev-tree fallback locations for a locally built renderer binary."""
 
     repo_root = Path(__file__).resolve().parents[2]
+    renderer_pkg = repo_root / "packages" / "renderer"
     return [
-        repo_root / "target" / "debug" / name,
-        repo_root / "target" / "release" / name,
+        renderer_pkg / "target" / "debug" / name,
+        renderer_pkg / "target" / "release" / name,
     ]
 
 

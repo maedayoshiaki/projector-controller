@@ -1,0 +1,36 @@
+[build-system]
+requires = ["maturin>=1.9,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "projector-controller-renderer"
+version = "0.1.0"
+description = "Rust/wgpu GPU renderer binary for projector-controller's realtime frame projection."
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Yoshiaki Maeda" },
+]
+keywords = ["projector", "projection", "wgpu", "winit", "gpu"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: MacOS",
+  "Topic :: Multimedia :: Graphics :: Presentation",
+]
+
+[project.urls]
+Homepage = "https://github.com/maedayoshiaki/projector-controller"
+Repository = "https://github.com/maedayoshiaki/projector-controller"
+
+[tool.maturin]
+# Pure Rust binary package: maturin "bin" bindings put the compiled renderer into the
+# wheel as a script, so it lands on PATH (the venv's Scripts/bin dir) after install.
+# No Python module here, so python-source/module-name are intentionally omitted.
+bindings = "bin"
+manifest-path = "Cargo.toml"
+strip = true

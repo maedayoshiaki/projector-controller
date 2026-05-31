@@ -4,8 +4,8 @@
 各セッションの最初に読み、最後に更新する。確定した事項は `MEMORY.md` へ昇格する。
 
 - **Last updated:** 2026-05-31
-- **Current focus:** Rust / GPU renderer MVP を実装。外部 display / fullscreen 実機検証待ち
-- **Working branch:** feature/rust-realtime-renderer
+- **Current focus:** 配布準備 Phase 1（2 パッケージ分割）を実装。外部 display / fullscreen 実機検証待ち
+- **Working branch:** feature/packaging-phase1-split
 
 ---
 
@@ -23,6 +23,8 @@
 - renderer の stdout/stderr をバックグラウンド drain する修正を追加（パイプバッファ満杯による write ブロック対策）。
 - display 番号の backend 間不一致に対応: realtime 経路は Rust renderer(winit) 列挙を権威とし、`--list-monitors` / `list_renderer_monitors()` を追加。単一モニタでは pygame 列挙と番号・物理解像度が一致することを実機確認。
 - モジュール化 / 配布準備の Phase 0（土台固め）を実装: `find_renderer_binary()` を env var `PROJECTOR_CONTROLLER_RENDERER` → PATH → repo target の順で探索するよう堅牢化、pyproject に classifiers/keywords/urls を追加、import 健全性と renderer 発見のテストを追加。fresh venv に wheel を install し別ディレクトリから import・公開 API 利用・RealtimeProjection 構築を実機確認。`uv build` で wheel/sdist 生成も確認。
+- 配布準備 Phase 1（2 パッケージ分割）を実装: renderer crate を `packages/renderer/`（自己完結 maturin bin パッケージ）へ移動し cargo workspace を解体。本体 pyproject に `[realtime]` extras を追加。`find_renderer_binary()` に sysconfig scripts ディレクトリ探索を追加（PoC 改善点）。本体 wheel + renderer wheel を fresh venv に install し、env var なし・リポジトリ外から sysconfig 経由で renderer 解決 → 実フレーム投影まで完走を実機確認。CLI（console_script）は本体に残し維持。
+- 事前に PoC（`poc/maturin-bundle`, abandon 済み）で maturin bin 同梱の可否と「console_script と同居不可」の制約を確定し、2 パッケージ分割を採用。
 
 ## Next
 

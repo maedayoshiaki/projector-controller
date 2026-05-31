@@ -128,7 +128,7 @@ uv run projector-controller --image path\to\image.png --display N --fit-mode nat
 - **Window Settings:** display, x, y, width, height, fullscreen
 - **Command:**
   ```powershell
-  cargo build -p projector-controller-renderer
+  cargo build --manifest-path packages\renderer\Cargo.toml
   uv run python examples\realtime_frames.py
   ```
 - **Expected:** Rust renderer window が開き、生成グラデーション frame が滑らかに更新される。

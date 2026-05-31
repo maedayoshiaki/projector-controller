@@ -68,13 +68,19 @@ with RealtimeProjection(display=0, fullscreen=False, size=(1280, 720)) as projec
 
 ## 他の Python プロジェクトから使う
 
-このパッケージはライブラリとして import して使えます。現在は同一マシンへの editable
-install を推奨します（PyPI 公開と Rust バイナリの wheel 同梱は準備中。`PLANS.md` の
-「モジュール化 / 配布準備」を参照）。
+このパッケージはライブラリとして import して使えます。配布は 2 パッケージ構成です
+（詳細は `PLANS.md`「モジュール化 / 配布準備」、`docs/ARCHITECTURE.md`「配布構成」）。
+
+- **`projector-controller`**: 本体。pure-Python の universal wheel。pygame 経路と
+  realtime クライアントを含む。
+- **`projector-controller-renderer`**: Rust/wgpu renderer バイナリ。プラットフォーム別
+  wheel（maturin でビルド）。realtime 経路を使うときだけ必要。
 
 ```powershell
-# 利用側プロジェクトの環境で、このリポジトリを editable install
-uv pip install -e C:\path\to\projector-controller
+# pygame 経路（静止画・テストパターン）だけ使う場合
+pip install projector-controller
+# realtime GPU 投影も使う場合（renderer バイナリを extras で同時に入れる）
+pip install "projector-controller[realtime]"
 ```
 
 ```python
@@ -94,13 +100,16 @@ with ProjectionWindow(display=0, size=(1280, 720)) as window:
 
 1. `renderer_path=` 引数
 2. 環境変数 `PROJECTOR_CONTROLLER_RENDERER`（バイナリの絶対パス）
-3. PATH 上の `projector-controller-renderer`（wheel 同梱時はここに入る予定）
-4. 開発時のみ: リポジトリの `target/debug` / `target/release`
+3. PATH 上の `projector-controller-renderer`（venv を activate した場合）
+4. 実行中インタプリタの scripts ディレクトリ（`[realtime]` でインストールした場合の既定の場所）
+5. 開発時のみ: `packages/renderer/target/{debug,release}`
+
+editable / 開発環境では `[realtime]` を入れない代わりに、renderer をビルドして使えます:
 
 ```powershell
-# editable install 環境で realtime を使う場合は、ビルドした renderer を環境変数で指す
-cargo build -p projector-controller-renderer
-$env:PROJECTOR_CONTROLLER_RENDERER = "C:\path\to\projector-controller\target\debug\projector-controller-renderer.exe"
+# packages/renderer で renderer をビルドし、環境変数で指す
+cargo build --manifest-path packages\renderer\Cargo.toml
+$env:PROJECTOR_CONTROLLER_RENDERER = "C:\path\to\projector-controller\packages\renderer\target\debug\projector-controller-renderer.exe"
 ```
 
 ## Quickstart
@@ -114,7 +123,7 @@ uv run projector-controller --display 0 --width 1280 --height 720 --duration 5
 Rust GPU renderer を使う場合:
 
 ```powershell
-cargo build -p projector-controller-renderer
+cargo build --manifest-path packages\renderer\Cargo.toml
 # realtime 経路の display 番号は Rust renderer(winit) 列挙が権威。これで番号を確認する。
 uv run projector-controller --list-monitors
 uv run python examples\realtime_frames.py
@@ -149,13 +158,15 @@ Esc キーまたはウィンドウの閉じる操作で終了します。`--dura
 ## Development Commands
 
 ```powershell
+# 本体（Python）
 uv run ruff format .
 uv run ruff check .
 uv run mypy src tests
 uv run pytest
-cargo fmt --check
-cargo clippy -p projector-controller-renderer --all-targets -- -D warnings
-cargo test -p projector-controller-renderer
+# renderer（Rust, packages/renderer 内で実行）
+cargo fmt --manifest-path packages\renderer\Cargo.toml --check
+cargo clippy --manifest-path packages\renderer\Cargo.toml --all-targets -- -D warnings
+cargo test --manifest-path packages\renderer\Cargo.toml
 ```
 
 ## Documentation Map

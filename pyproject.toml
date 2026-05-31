@@ -24,6 +24,13 @@ dependencies = [
   "pygame>=2.6.1",
 ]
 
+[project.optional-dependencies]
+# Realtime GPU projection. Pulls the Rust renderer binary (separate, platform-specific
+# wheel built with maturin). Pinned to the same version to keep the IPC protocol in sync.
+realtime = [
+  "projector-controller-renderer==0.1.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/maedayoshiaki/projector-controller"
 Repository = "https://github.com/maedayoshiaki/projector-controller"
@@ -41,6 +48,13 @@ dev = [
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.uv.sources]
+# For local development, resolve the renderer from the in-repo package instead of PyPI,
+# so `uv sync --extra realtime` builds it from packages/renderer. The realtime extra is
+# optional and not resolved by default, so plain `uv run`/`uv sync` does no Rust build.
+# Published wheels are unaffected: this table is uv-only and not part of wheel metadata.
+projector-controller-renderer = { path = "packages/renderer" }
 
 [tool.ruff]
 line-length = 100

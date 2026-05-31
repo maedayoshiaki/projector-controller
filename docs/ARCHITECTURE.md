@@ -89,7 +89,7 @@ GPU / display
 | `projector_controller.display` | ディスプレイ一覧の取得 | `config`, backend adapter |
 | `projector_controller.adapters` | GUI / 動画再生バックエンド固有処理 | 外部ライブラリ |
 | `projector_controller.cli` | 手動検証用 CLI | `window`, `display`, `config` |
-| `crates/projector-controller-renderer` | Rust / wgpu renderer binary | `winit`, `wgpu` |
+| `packages/renderer`（crate `projector-controller-renderer`） | Rust / wgpu renderer binary。別 PyPI パッケージとして配布 | `winit`, `wgpu` |
 
 ```mermaid
 graph TD

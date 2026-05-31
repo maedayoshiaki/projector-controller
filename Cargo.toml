@@ -1,3 +1,0 @@
-[workspace]
-members = ["crates/projector-controller-renderer"]
-resolver = "2"

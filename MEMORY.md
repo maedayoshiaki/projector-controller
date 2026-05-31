@@ -22,7 +22,10 @@
 | 2026-05-31 | realtime 経路の display 番号は Rust renderer(winit) 列挙を権威にする | pygame と winit で列挙元が別系統で番号がずれ得る。realtime で使う番号を renderer 自身の列挙(`--list-monitors` / `list_renderer_monitors()`)で見せれば、`--display N` と原理的に一致し追加依存不要。pygame は原点取得 API が無くマッチング案は ctypes 依存になり「小さく始める」に反する | main.rs(`--list-monitors`)、realtime.py(`list_renderer_monitors`/`RendererMonitor`)、cli.py、docs/ARCHITECTURE.md |
 | 2026-05-31 | renderer の stdout/stderr は daemon thread で drain する | READY 後に読み出さないと OS パイプバッファ満杯で renderer が write ブロックし描画が止まり得る。bounded deque に保持し異常終了診断に使う | src/projector_controller/realtime.py |
 | 2026-05-31 | 配布は PyPI 公開 + Rust バイナリを maturin で wheel 同梱とする。実装は Phase 0(土台)→1(maturin)→2(CI/公開) に段階化 | 一気に進めると手戻りが大きく、Rust 入り wheel はプラットフォーム別 CI が前提。土台(renderer 発見の堅牢化等)は配布方法に依存せず先に固められる | pyproject.toml、realtime.py、PLANS.md、将来の CI |
-| 2026-05-31 | renderer バイナリ発見順を `renderer_path` 引数 → env var `PROJECTOR_CONTROLLER_RENDERER` → PATH(`shutil.which`) → repo target に堅牢化 | repo の target/ 依存だと pip install 環境で FileNotFoundError になる。PATH は maturin の bin install 先を拾う。env var が set かつ不在なら黙ってフォールバックせず明示エラー(利用者の意図尊重) | src/projector_controller/realtime.py |
+| 2026-05-31 | renderer バイナリ発見順を `renderer_path` 引数 → env var `PROJECTOR_CONTROLLER_RENDERER` → PATH(`shutil.which`) → sysconfig scripts dir → `packages/renderer/target` に堅牢化 | repo の target/ 依存だと pip install 環境で FileNotFoundError になる。PATH は activate 時、sysconfig scripts dir は activate せず install した renderer を拾う。env var が set かつ不在なら黙ってフォールバックせず明示エラー(利用者の意図尊重) | src/projector_controller/realtime.py |
+| 2026-05-31 | 配布は 2 パッケージ分割: 本体 `projector-controller`(pure-Python universal wheel, hatchling, console_script) + `projector-controller-renderer`(OS 別 wheel, maturin bin)。本体 `[realtime]` extras で renderer を同 version pin | maturin bin は console_script と同居不可("Defining scripts and working with a binary doesn't mix well")。maturin wheel は OS 別なので本体を maturin 化すると pygame だけの利用者にも OS 別 wheel を強いる。分割で各々が自然なビルドバックエンドを使え CLI も維持できる | pyproject.toml、packages/renderer/、docs/ARCHITECTURE.md |
+| 2026-05-31 | renderer crate は `packages/renderer/`(自己完結 maturin bin)に置き cargo workspace を解体 | PyPI 独立パッケージとして sdist/editable/CI が素直になる。crate は 1 つなので workspace を失う不利益なし | packages/renderer/、Cargo.toml(削除) |
+| 2026-05-31 | Phase 1 受け入れ確認成功 | 本体 wheel + renderer wheel を fresh venv に install し、env var/PATH なし・リポジトリ外から sysconfig 経由で renderer 解決 → 実フレーム投影まで完走 | packages/renderer/、src/projector_controller/realtime.py |
 
 ## Conventions
 
@@ -44,6 +47,9 @@
 - renderer subprocess の stdout/stderr を PIPE にしたら必ず drain する。READY 行だけ読んで放置すると OS パイプバッファ満杯で renderer が write ブロックする。
 - `import projector_controller` は軽量に保つ（pygame は `ProjectionWindow` 利用時に遅延ロード）。`tests/test_package.py` が「import で pygame を読まない」「公開 API が出ている」を保証する。壊したら配布物の使い勝手が落ちる。
 - パッケージ検証は fresh venv に `uv build` の wheel を install し、リポジトリ外ディレクトリから import して行う（ソースツリーからの import と混同しない）。この環境のツール出力が破損しやすいので、判定は print ではなく exit code に載せる（[[tool-output-corruption]]）。
+- maturin `bin` バインディングは `[project.scripts]`（console_script）と同居できない。Rust バイナリと CLI entry point を両方出したいなら別パッケージに分ける。
+- workspace 解体後は `cargo ... -p <crate>` が使えない。`cargo <cmd> --manifest-path packages/renderer/Cargo.toml` を使う（README/EXPERIMENTS/ARCHITECTURE のコマンド例も更新済み）。
+- maturin の純バイナリパッケージ（Python モジュールを含まない）は `python-source` / `module-name` を設定しない。設定すると「python module が存在しない」エラーになる（mixed project 限定の設定）。
 
 ## Domain Facts
 
