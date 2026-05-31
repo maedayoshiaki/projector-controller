@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import shutil
 import socket
 import struct
 import subprocess
@@ -31,6 +33,9 @@ _FIT_MODES: dict[FitMode | None, int] = {
 }
 _MONITOR_PREFIX = "MONITOR"
 _MONITOR_FIELDS = 8
+# Env var an installed user can point at the renderer binary, taking precedence over
+# PATH discovery. Useful when the binary lives outside PATH or for pinning a build.
+_RENDERER_ENV_VAR = "PROJECTOR_CONTROLLER_RENDERER"
 
 
 @dataclass(frozen=True)
@@ -310,27 +315,60 @@ def _parse_monitor_lines(text: str) -> list[RendererMonitor]:
 
 
 def find_renderer_binary() -> Path:
-    """Return the Rust renderer binary path for local development."""
+    """Locate the Rust renderer binary.
 
-    exe = (
-        "projector-controller-renderer.exe"
-        if sys.platform == "win32"
-        else "projector-controller-renderer"
-    )
-    repo_root = Path(__file__).resolve().parents[2]
-    candidates = [
-        repo_root / "target" / "debug" / exe,
-        repo_root / "target" / "release" / exe,
-    ]
-    for candidate in candidates:
+    Search order (first hit wins):
+
+    1. ``PROJECTOR_CONTROLLER_RENDERER`` env var (must exist if set, else error).
+    2. PATH via ``shutil.which`` — this finds the binary when installed from a wheel
+       (maturin ``bindings="bin"`` drops it into the venv's scripts directory).
+    3. ``target/{debug,release}`` relative to the repo, for local development.
+    """
+
+    name = _renderer_exe_name()
+
+    env_path = os.environ.get(_RENDERER_ENV_VAR)
+    if env_path:
+        candidate = Path(env_path)
+        if candidate.exists():
+            return candidate
+        # Honor explicit intent: a set-but-wrong env var should fail loudly rather
+        # than silently falling back to PATH or the dev tree.
+        msg = f"{_RENDERER_ENV_VAR} points to a missing renderer binary: {candidate}"
+        raise FileNotFoundError(msg)
+
+    on_path = shutil.which(name)
+    if on_path:
+        return Path(on_path)
+
+    for candidate in _repo_target_candidates(name):
         if candidate.exists():
             return candidate
 
     msg = (
         "Rust renderer binary not found. Build it with "
-        "`cargo build -p projector-controller-renderer` or pass renderer_path=..."
+        "`cargo build -p projector-controller-renderer`, install a wheel that bundles "
+        f"it, set {_RENDERER_ENV_VAR}=<path>, or pass renderer_path=..."
     )
     raise FileNotFoundError(msg)
+
+
+def _renderer_exe_name() -> str:
+    return (
+        "projector-controller-renderer.exe"
+        if sys.platform == "win32"
+        else "projector-controller-renderer"
+    )
+
+
+def _repo_target_candidates(name: str) -> list[Path]:
+    """Dev-tree fallback locations for a locally built renderer binary."""
+
+    repo_root = Path(__file__).resolve().parents[2]
+    return [
+        repo_root / "target" / "debug" / name,
+        repo_root / "target" / "release" / name,
+    ]
 
 
 def _encode_frame_header(

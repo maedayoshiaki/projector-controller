@@ -22,10 +22,13 @@
 - これまで未コミットだった Rust renderer + `RealtimeProjection` 一式を `feature/rust-realtime-renderer` にコミット済み（`b5f252d`）。
 - renderer の stdout/stderr をバックグラウンド drain する修正を追加（パイプバッファ満杯による write ブロック対策）。
 - display 番号の backend 間不一致に対応: realtime 経路は Rust renderer(winit) 列挙を権威とし、`--list-monitors` / `list_renderer_monitors()` を追加。単一モニタでは pygame 列挙と番号・物理解像度が一致することを実機確認。
+- モジュール化 / 配布準備の Phase 0（土台固め）を実装: `find_renderer_binary()` を env var `PROJECTOR_CONTROLLER_RENDERER` → PATH → repo target の順で探索するよう堅牢化、pyproject に classifiers/keywords/urls を追加、import 健全性と renderer 発見のテストを追加。fresh venv に wheel を install し別ディレクトリから import・公開 API 利用・RealtimeProjection 構築を実機確認。`uv build` で wheel/sdist 生成も確認。
 
 ## Next
 
 - `docs/EXPERIMENTS.md` の `projtest-002` として Rust renderer の外部 display / fullscreen / DPI / 座標挙動を実機確認する。あわせて `M0`（pygame と winit の display 番号一致）を複数モニタで確認する。
+- 配布準備 Phase 1: build backend を maturin 化し、Rust renderer を wheel 同梱する（ビルド構成変更＋新規依存のため人間確認後に着手）。
+- 配布準備 Phase 2: GitHub Actions でクロスプラットフォーム wheel をビルドし PyPI 公開（CI シークレット必要）。
 - 必要なら frame IPC を copy-based TCP から shared memory / ring buffer に移す。
 - 設定ファイル形式を導入するか判断する。
 

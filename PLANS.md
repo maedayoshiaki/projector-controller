@@ -305,3 +305,55 @@ AGENTS.md に従い、Rust workspace 追加、新規依存、公開 API、Python
 
 #### Outcomes & Retrospective
 - Rust / wgpu renderer MVP を追加した。初期 protocol は localhost TCP の copy-based frame 転送で、Python API は `RealtimeProjection.submit_frame(...)`。外部 display / fullscreen / DPI / 座標挙動は `projtest-002` で実機確認する。
+
+---
+
+## Plan: モジュール化 / 配布準備（Phase 0: 土台固め）
+
+- **Status:** `Done`
+- **Owner:** AI
+- **Created / Updated:** 2026-05-31 / 2026-05-31
+- **Related:** src/projector_controller/realtime.py, pyproject.toml, tests/, README.md
+
+### Goal & Non-Goals
+- **Goal:** 「他の Python から呼び出す」ための土台を非破壊で固める。具体的には (1) Rust renderer バイナリの発見を repo の `target/` 依存から脱却させ、環境変数 / PATH も探すようにする、(2) PyPI 公開を見据えたパッケージメタデータを整備する、(3) `import projector_controller` の健全性（軽量 import・公開 API）をテストで保証する。
+- **Non-Goals:** ビルドバックエンドの maturin 切替（Phase 1）、CI / クロスプラットフォーム wheel / PyPI 公開（Phase 2）、公開 API のシグネチャ破壊的変更。
+
+### Context & Constraints
+ユーザー判断: 最終配布先は **PyPI 公開**、Rust バイナリは **maturin で wheel 同梱**。ただし一気に進めず Phase 0 → 1 → 2 と段階化する（Phase 0 は配布方法に依存しない土台）。`find_renderer_binary()` は現状 `repo_root/target/{debug,release}` しか見ないため、`pip install` 環境では `RealtimeProjection` が `FileNotFoundError` になる。これが最初の実用上のギャップ。
+
+### Approach（段階化）
+
+| Phase | 内容 | 規約上の扱い |
+|----|------|------|
+| 0 | renderer 発見の堅牢化・メタデータ整備・import テスト（本プラン） | 非破壊 |
+| 1 | build backend を maturin 化し Rust バイナリを wheel 同梱 | ビルド構成変更＋新規依存（要確認） |
+| 2 | GitHub Actions でクロスプラットフォーム wheel、TestPyPI→PyPI 公開 | CI・公開（実機検証後を推奨） |
+
+renderer 発見の探索順（Phase 0）: `renderer_path` 引数 → 環境変数 `PROJECTOR_CONTROLLER_RENDERER` → PATH（`shutil.which`、maturin の `bindings="bin"` install 先）→ repo の `target/{debug,release}`（開発時フォールバック）。環境変数が指す先が存在しない場合は黙ってフォールバックせず明示エラーにする（利用者の意図を尊重）。
+
+### Milestones / Steps
+- [x] `find_renderer_binary()` を env var / PATH / target の順で探索するよう堅牢化
+- [x] pyproject に classifiers / keywords / urls を追加（license 方式は据え置き）
+- [x] renderer 発見の探索順と、軽量 import / 公開 API のテストを追加
+- [x] README に「同一マシンへ editable install して別 Python から import」手順を追記
+- [x] format / lint / typecheck / test と `uv build`（メタデータ検証）を通す
+- [x] STATUS / MEMORY を更新する
+
+### Risks & Compatibility
+- 非破壊。既存の `target/` フォールバックは維持するので開発時の挙動は変わらない。
+- pyproject のメタデータ追加はビルドを壊さない範囲に限定し、`uv build` で検証する。
+- maturin 切替（Phase 1）で build backend が変わるため、Phase 0 ではビルド構成に手を入れない。
+
+### Living Sections
+
+#### Progress
+- 2026-05-31: Phase 化を決定（PyPI 公開 + maturin 同梱、ただし段階的に）。Phase 0 着手。
+- 2026-05-31: Phase 0 完了。renderer 発見の堅牢化、pyproject メタデータ、import/発見テスト、README 追記を実装。`uv build` で wheel/sdist 生成、fresh venv に install して別ディレクトリから import・公開 API 利用・RealtimeProjection 構築・env var 経由 renderer 解決を実機確認。pytest 25 passed。
+
+#### Outcomes & Retrospective
+- 2026-05-31: 非破壊で「他の Python から呼び出す」土台が完成。`import projector_controller` は軽量（pygame 遅延ロード）、renderer は env var/PATH でも解決可能、メタデータは PyPI 公開を見据えた形に。次は Phase 1（maturin で Rust バイナリ wheel 同梱、ビルド構成変更のため人間確認後）。
+
+#### Decision Log
+- 2026-05-31: 配布は PyPI、Rust バイナリは maturin で wheel 同梱とする（ユーザー判断）。実装は Phase 0（土台）→ 1（maturin）→ 2（CI/公開）に段階化。
+- 2026-05-31: renderer バイナリ発見は env var `PROJECTOR_CONTROLLER_RENDERER` と PATH を追加。PATH は maturin の bin install 先を拾うため。

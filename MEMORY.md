@@ -21,6 +21,8 @@
 | 2026-05-31 | Rust renderer MVP の windowed smoke test は成功 | `RealtimeProjection` から Rust renderer を起動し、64x64 RGBA frame を 320x240 window に送信して終了できた | src/projector_controller/realtime.py、crates/projector-controller-renderer |
 | 2026-05-31 | realtime 経路の display 番号は Rust renderer(winit) 列挙を権威にする | pygame と winit で列挙元が別系統で番号がずれ得る。realtime で使う番号を renderer 自身の列挙(`--list-monitors` / `list_renderer_monitors()`)で見せれば、`--display N` と原理的に一致し追加依存不要。pygame は原点取得 API が無くマッチング案は ctypes 依存になり「小さく始める」に反する | main.rs(`--list-monitors`)、realtime.py(`list_renderer_monitors`/`RendererMonitor`)、cli.py、docs/ARCHITECTURE.md |
 | 2026-05-31 | renderer の stdout/stderr は daemon thread で drain する | READY 後に読み出さないと OS パイプバッファ満杯で renderer が write ブロックし描画が止まり得る。bounded deque に保持し異常終了診断に使う | src/projector_controller/realtime.py |
+| 2026-05-31 | 配布は PyPI 公開 + Rust バイナリを maturin で wheel 同梱とする。実装は Phase 0(土台)→1(maturin)→2(CI/公開) に段階化 | 一気に進めると手戻りが大きく、Rust 入り wheel はプラットフォーム別 CI が前提。土台(renderer 発見の堅牢化等)は配布方法に依存せず先に固められる | pyproject.toml、realtime.py、PLANS.md、将来の CI |
+| 2026-05-31 | renderer バイナリ発見順を `renderer_path` 引数 → env var `PROJECTOR_CONTROLLER_RENDERER` → PATH(`shutil.which`) → repo target に堅牢化 | repo の target/ 依存だと pip install 環境で FileNotFoundError になる。PATH は maturin の bin install 先を拾う。env var が set かつ不在なら黙ってフォールバックせず明示エラー(利用者の意図尊重) | src/projector_controller/realtime.py |
 
 ## Conventions
 
@@ -40,6 +42,8 @@
 - Rust renderer は pygame backend と fullscreen 実装が異なる（winit borderless fullscreen）。display 番号、DPI、座標挙動は Rust 側で改めて実機検証する。
 - display 番号は backend で 2 系統（pygame=`--list-displays`、Rust renderer=`--list-monitors`）。realtime の `--display` は必ず `--list-monitors` の番号を使う。両者の番号が一致するかは環境依存で、外部モニタ接続時に projtest-002 で要確認（単一モニタでは一致を確認済み）。
 - renderer subprocess の stdout/stderr を PIPE にしたら必ず drain する。READY 行だけ読んで放置すると OS パイプバッファ満杯で renderer が write ブロックする。
+- `import projector_controller` は軽量に保つ（pygame は `ProjectionWindow` 利用時に遅延ロード）。`tests/test_package.py` が「import で pygame を読まない」「公開 API が出ている」を保証する。壊したら配布物の使い勝手が落ちる。
+- パッケージ検証は fresh venv に `uv build` の wheel を install し、リポジトリ外ディレクトリから import して行う（ソースツリーからの import と混同しない）。この環境のツール出力が破損しやすいので、判定は print ではなく exit code に載せる（[[tool-output-corruption]]）。
 
 ## Domain Facts
 

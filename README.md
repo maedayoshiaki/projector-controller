@@ -66,6 +66,43 @@ with RealtimeProjection(display=0, fullscreen=False, size=(1280, 720)) as projec
 - pygame 2.6+
 - Rust toolchain（Rust renderer を使う場合）
 
+## 他の Python プロジェクトから使う
+
+このパッケージはライブラリとして import して使えます。現在は同一マシンへの editable
+install を推奨します（PyPI 公開と Rust バイナリの wheel 同梱は準備中。`PLANS.md` の
+「モジュール化 / 配布準備」を参照）。
+
+```powershell
+# 利用側プロジェクトの環境で、このリポジトリを editable install
+uv pip install -e C:\path\to\projector-controller
+```
+
+```python
+# 別プロジェクトのコードから
+from projector_controller import ProjectionWindow, RealtimeProjection, list_renderer_monitors
+
+# 静止画 / テストパターン（pygame backend）
+with ProjectionWindow(display=0, size=(1280, 720)) as window:
+    window.show_test_pattern()
+    window.wait(3)
+```
+
+`import projector_controller` 自体は軽量で、pygame は実際に `ProjectionWindow` を使う
+ときに初めて読み込まれます（realtime のみ使う場合は GUI 依存を払わない）。
+
+`RealtimeProjection` は Rust renderer バイナリを次の順で探します:
+
+1. `renderer_path=` 引数
+2. 環境変数 `PROJECTOR_CONTROLLER_RENDERER`（バイナリの絶対パス）
+3. PATH 上の `projector-controller-renderer`（wheel 同梱時はここに入る予定）
+4. 開発時のみ: リポジトリの `target/debug` / `target/release`
+
+```powershell
+# editable install 環境で realtime を使う場合は、ビルドした renderer を環境変数で指す
+cargo build -p projector-controller-renderer
+$env:PROJECTOR_CONTROLLER_RENDERER = "C:\path\to\projector-controller\target\debug\projector-controller-renderer.exe"
+```
+
 ## Quickstart
 
 ```powershell

@@ -8,9 +8,25 @@ license = { file = "LICENSE" }
 authors = [
   { name = "Yoshiaki Maeda" },
 ]
+keywords = ["projector", "projection", "display", "fullscreen", "pygame", "wgpu"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: Microsoft :: Windows",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Multimedia :: Graphics :: Presentation",
+  "Typing :: Typed",
+]
 dependencies = [
   "pygame>=2.6.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/maedayoshiaki/projector-controller"
+Repository = "https://github.com/maedayoshiaki/projector-controller"
 
 [project.scripts]
 projector-controller = "projector_controller.cli:main"

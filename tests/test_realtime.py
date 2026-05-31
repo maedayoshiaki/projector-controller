@@ -5,12 +5,15 @@ from pathlib import Path
 
 import pytest
 
+from projector_controller import realtime
 from projector_controller.config import Point, Size
 from projector_controller.realtime import (
+    _RENDERER_ENV_VAR,
     RealtimeProjection,
     _drain_stream,
     _encode_frame_header,
     _parse_monitor_lines,
+    find_renderer_binary,
 )
 
 
@@ -70,6 +73,42 @@ def test_drain_stream_keeps_last_lines_within_bound() -> None:
 
     # Lines are stripped of newlines and the bounded buffer keeps only the latest.
     assert list(sink) == ["second", "third"]
+
+
+def test_find_renderer_binary_prefers_env_var(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    exe = tmp_path / "renderer.bin"
+    exe.write_bytes(b"")
+    monkeypatch.setenv(_RENDERER_ENV_VAR, str(exe))
+
+    assert find_renderer_binary() == exe
+
+
+def test_find_renderer_binary_env_var_missing_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(_RENDERER_ENV_VAR, str(tmp_path / "nope.bin"))
+
+    with pytest.raises(FileNotFoundError, match=_RENDERER_ENV_VAR):
+        find_renderer_binary()
+
+
+def test_find_renderer_binary_falls_back_to_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(_RENDERER_ENV_VAR, raising=False)
+    monkeypatch.setattr("shutil.which", lambda name: "/opt/bin/renderer")
+
+    assert find_renderer_binary() == Path("/opt/bin/renderer")
+
+
+def test_find_renderer_binary_raises_when_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(_RENDERER_ENV_VAR, raising=False)
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    # Ignore any locally built binary so the not-found path is exercised.
+    monkeypatch.setattr(realtime, "_repo_target_candidates", lambda name: [])
+
+    with pytest.raises(FileNotFoundError, match="cargo build"):
+        find_renderer_binary()
 
 
 def test_parse_monitor_lines_parses_fields_and_skips_noise() -> None:
