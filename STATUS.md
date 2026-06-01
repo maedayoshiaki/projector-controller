@@ -3,7 +3,7 @@
 **現在**を扱うファイル。「今この瞬間、何がどうなっているか」のスナップショット。
 各セッションの最初に読み、最後に更新する。確定した事項は `MEMORY.md` へ昇格する。
 
-- **Last updated:** 2026-05-31
+- **Last updated:** 2026-06-01
 - **Current focus:** 配布準備 Phase 1（2 パッケージ分割）を実装。外部 display / fullscreen 実機検証待ち
 - **Working branch:** feature/packaging-phase1-split
 
@@ -40,6 +40,8 @@
 
 ## Recently Done
 
+- 2026-06-01 `projtest-002`（Rust renderer 実機確認）の手順を `docs/EXPERIMENTS.md` に具体化。ハードウェア接続時に上から実行すれば終わる形にした: M0（pygame vs winit の番号一致・複数モニタ）+ R1〜R4（windowed 中央 / 絶対座標 / fullscreen / fit mode）を、`RealtimeProjection` を駆動するパラメータ可変フィーダ（here-string → `uv run python -`）と「確認の着眼点（DPI/物理座標・borderless fullscreen・番号一致・vsync）」付きで記述。CLI は pygame 専用で realtime は `--list-monitors` のみ、という構造も明記。既存の smoke / M0 単一モニタ結果は保持。ドキュメントのみ・非破壊。
+- 2026-05-31 CI 最小構成を追加（`.github/workflows/ci.yml`）。push(main)/PR で検証スタックを強制: Python job（ruff format --check / ruff check / mypy / pytest）と Rust renderer job（cargo fmt --check / clippy -D warnings / test）。実行 OS は Windows のみ（ユーザー承認）。手元 Windows で両スタック全緑を確認（ruff/mypy/pytest 26 passed、cargo 2 passed）。残りは人間によるブランチ保護（マージ必須化）と Phase 2（クロスプラットフォーム wheel→公開）。
 - 2026-05-31 リポジトリ全体レビュー（多観点＋反証検証）を実施。確定した doc-mismatch のうち人間判断不要なものを修正: PLANS Phase-1 を `Done` 化、Related の旧 `crates/` パスを `packages/renderer/` に、初期スケッチの未実装 stride / 「shader uniform」記述を実装（tightly-packed / quad 頂点更新）に整合、AGENTS のツリーに `packages/renderer/` 追加・`media/` を未作成扱いに、ARCHITECTURE の `DisplaySpec` 記述を実装（index/name/size）に整合。レビューで挙がった大物（CI 不在、realtime のフロー制御＆生存通知、テスト空白）は人間判断待ち。
 - 2026-05-31 配布準備 Phase 1（2 パッケージ分割）を実装・main にマージ（`f579a16`）。続けてローカル PyPI 配布リハーサルを実施し、`pip install "projector-controller[realtime]"` が index 経由で解決〜実フレーム投影まで完走することを実証（一時環境のみ・コミットなし）。
 - 2026-05-31 配布準備 Phase 0（土台固め）を実装・main にマージ（`3c2b90b`）。
