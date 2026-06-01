@@ -57,7 +57,7 @@
 - maturin の純バイナリパッケージ（Python モジュールを含まない）は `python-source` / `module-name` を設定しない。設定すると「python module が存在しない」エラーになる（mixed project 限定の設定）。
 - PyAV の plane はパディングを持つ。映像 `reformat("rgba")` は行ごとに `line_size > width*4`、音声 `resample("s16")` は plane が `buffer_size > samples*ch*2`。renderer protocol は tightly-packed なので必ず tight 長に切る（映像=`_pack_rgba` で行ごと、音声=`bytes(plane)[:samples*ch*2]`）。
 - `av` / `sounddevice` は `[video]` extra（heavy）。`media.py` で遅延 import し、`import projector_controller` には影響させない。音声ストリーム無し / 出力デバイス無し / `--mute` 時は wall-clock の映像のみにフォールバック（`AudioMaster.start()` が False を返す）。
-- realtime の copy-TCP 転送上限は手元実機で ~1615 MB/s（1080p ~195fps 相当）。1080p60 は余裕、4K60(~2GB/s) を狙うなら shm/ring buffer を再評価する。
+- realtime の copy-TCP 転送上限は手元実機で ~1615 MB/s（1080p ~195fps 相当）。end-to-end でも 1080p で `all`=113.9fps / `latest`=130.9fps を確認し、**1080p60 を ~1.9× 達成**（shm も受信バッファ再利用も不要、per-frame alloc のまま）。4K60(~2GB/s) を狙うなら shm/ring buffer と present 方式(vsync 解除)を再評価する。
 - A/V 同期は音声 master。`AudioMaster` が別スレッドで音声を再生し `clock()`（= 書込済み秒 − 出力 latency）を提供、`stream_frames_synced` が映像を `clock()+offset` で出す。renderer present 遅延は MVP では手動 `--av-offset-ms`（既定 0）で吸収し、厳密計測は未実装。
 
 ## Domain Facts
