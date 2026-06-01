@@ -96,37 +96,22 @@ class RealtimeProjection:
         self.backpressure = backpressure
         self.renderer_path = Path(renderer_path) if renderer_path is not None else None
         self.connect_timeout = connect_timeout
-        self._process: subprocess.Popen[str] | None = None
+        self._renderer: RendererProcess | None = None
         self._socket: socket.socket | None = None
-        # Bounded buffers fed by background drain threads so the renderer can never
-        # block writing to a full stdout/stderr pipe. Kept for error diagnostics.
-        self._stderr_lines: deque[str] = deque(maxlen=200)
-        self._stdout_lines: deque[str] = deque(maxlen=50)
-        self._drain_threads: list[threading.Thread] = []
 
     def open(self) -> Self:
-        if self._process is not None:
+        if self._renderer is not None:
             return self
 
-        command = self._renderer_command()
-        self._process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
+        renderer = RendererProcess(self._renderer_command(), connect_timeout=self.connect_timeout)
+        self._renderer = renderer
         try:
-            # Drain stderr from the start so a chatty renderer cannot fill the OS pipe
-            # buffer and block its own thread. stdout is read directly until READY,
-            # then drained the same way.
-            self._spawn_drain(self._process.stderr, self._stderr_lines)
-            address = self._read_ready_address()
+            address = renderer.start()
             self._socket = socket.create_connection(address, timeout=self.connect_timeout)
             self._socket.settimeout(None)
             # Send small frame headers immediately instead of letting Nagle hold them
             # back waiting for the payload; frame latency matters more than packet count.
             self._socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            self._spawn_drain(self._process.stdout, self._stdout_lines)
         except Exception:
             self.close()
             raise
@@ -142,22 +127,10 @@ class RealtimeProjection:
                 pass
             sock.close()
 
-        process = self._process
-        self._process = None
-        if process is None:
-            return
-        try:
-            process.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            process.terminate()
-            try:
-                process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=2)
-        finally:
-            self._join_drains(0.5)
-            self._drain_threads.clear()
+        renderer = self._renderer
+        self._renderer = None
+        if renderer is not None:
+            renderer.close()
 
     def submit_frame(
         self,
@@ -206,26 +179,116 @@ class RealtimeProjection:
 
     def _renderer_command(self) -> list[str]:
         binary = self.renderer_path or find_renderer_binary()
-        command = [
-            str(binary),
-            "--bind",
-            "127.0.0.1:0",
-            "--display",
-            str(self.display),
-            "--width",
-            str(self.size.width),
-            "--height",
-            str(self.size.height),
-            "--fit-mode",
-            self.fit_mode,
-            "--backpressure",
-            self.backpressure,
-        ]
-        if self.fullscreen:
-            command.append("--fullscreen")
-        if self.position is not None:
-            command.extend(["--x", str(self.position.x), "--y", str(self.position.y)])
-        return command
+        return build_renderer_command(
+            binary,
+            display=self.display,
+            fullscreen=self.fullscreen,
+            position=self.position,
+            size=self.size,
+            fit_mode=self.fit_mode,
+            backpressure=self.backpressure,
+        )
+
+    def _ensure_socket(self) -> socket.socket:
+        if self._socket is None:
+            msg = "realtime projection is not open"
+            raise RuntimeError(msg)
+        return self._socket
+
+
+def build_renderer_command(
+    binary: str | Path,
+    *,
+    display: int,
+    fullscreen: bool,
+    position: Point | None,
+    size: Size,
+    fit_mode: FitMode,
+    backpressure: Backpressure,
+) -> list[str]:
+    """Build the Rust renderer argv. Shared by RealtimeProjection and VideoPlayer."""
+    command = [
+        str(binary),
+        "--bind",
+        "127.0.0.1:0",
+        "--display",
+        str(display),
+        "--width",
+        str(size.width),
+        "--height",
+        str(size.height),
+        "--fit-mode",
+        fit_mode,
+        "--backpressure",
+        backpressure,
+    ]
+    if fullscreen:
+        command.append("--fullscreen")
+    if position is not None:
+        command.extend(["--x", str(position.x), "--y", str(position.y)])
+    return command
+
+
+class RendererProcess:
+    """Own a spawned Rust renderer subprocess and expose its frame-socket address.
+
+    Reused by RealtimeProjection (which then connects a socket itself) and by VideoPlayer
+    (which hands ``address`` to a separate media process that connects). Drains stdout and
+    stderr in background threads so a chatty renderer can never block on a full OS pipe.
+    """
+
+    def __init__(self, command: list[str], *, connect_timeout: float = 5.0) -> None:
+        self.command = command
+        self.connect_timeout = connect_timeout
+        self.address: tuple[str, int] | None = None
+        self._process: subprocess.Popen[str] | None = None
+        # Bounded buffers fed by background drain threads so the renderer can never block
+        # writing to a full stdout/stderr pipe. Kept for error diagnostics.
+        self._stderr_lines: deque[str] = deque(maxlen=200)
+        self._stdout_lines: deque[str] = deque(maxlen=50)
+        self._drain_threads: list[threading.Thread] = []
+
+    def start(self) -> tuple[str, int]:
+        """Spawn the renderer and return its frame-socket address once it reports READY."""
+        if self.address is not None:
+            return self.address
+
+        self._process = subprocess.Popen(
+            self.command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            # Drain stderr from the start so a chatty renderer cannot fill the OS pipe
+            # buffer and block its own thread. stdout is read directly until READY, then
+            # drained the same way.
+            self._spawn_drain(self._process.stderr, self._stderr_lines)
+            self.address = self._read_ready_address()
+            self._spawn_drain(self._process.stdout, self._stdout_lines)
+        except Exception:
+            self.close()
+            raise
+        return self.address
+
+    def close(self) -> None:
+        process = self._process
+        self._process = None
+        self.address = None
+        if process is None:
+            return
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=2)
+        finally:
+            self._join_drains(0.5)
+            self._drain_threads.clear()
 
     def _read_ready_address(self) -> tuple[str, int]:
         process = self._ensure_process()
@@ -254,12 +317,6 @@ class RealtimeProjection:
             msg = "renderer process is not open"
             raise RuntimeError(msg)
         return self._process
-
-    def _ensure_socket(self) -> socket.socket:
-        if self._socket is None:
-            msg = "realtime projection is not open"
-            raise RuntimeError(msg)
-        return self._socket
 
     def _spawn_drain(self, stream: IO[str] | None, sink: deque[str]) -> None:
         if stream is None:

@@ -30,6 +30,11 @@ dependencies = [
 realtime = [
   "projector-controller-renderer==0.1.0",
 ]
+# Video file playback via the dedicated media process (decodes with PyAV and feeds the
+# Rust renderer). Heavy (bundles ffmpeg), so it is opt-in and separate from `realtime`.
+video = [
+  "av>=12",
+]
 
 [project.urls]
 Homepage = "https://github.com/maedayoshiaki/projector-controller"
@@ -71,6 +76,10 @@ packages = ["projector_controller"]
 
 [[tool.mypy.overrides]]
 module = ["pygame", "pygame.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["av", "av.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
