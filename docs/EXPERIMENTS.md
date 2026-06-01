@@ -118,33 +118,108 @@ uv run projector-controller --image path\to\image.png --display N --fit-mode nat
 
 ## projtest-002: Rust GPU renderer の実機確認
 
-- **Date:** 2026-05-31（local windowed smoke のみ実施。外部 display / fullscreen は未実施）
-- **Commit:** `git hash`
+realtime 経路（`RealtimeProjection` → Rust `winit` + `wgpu` renderer）の display 番号 / fullscreen /
+座標 / DPI / fit mode を外部モニタ・プロジェクタで確認する。**pygame backend とは window/fullscreen の
+実装方式が異なる**（winit の borderless fullscreen vs pygame `FULLSCREEN`）ため、projtest-001 とは別に取り直す。
+
+- **Date:** （実機検証日を記入。local windowed smoke と M0 単一モニタは 2026-05-31 実施済み）
+- **Commit:** `git hash`（検証時の HEAD を記入）
 - **Machine / OS:** Windows など
 - **Projector / Display:** 機種名、接続方式、OS 上の display 番号
-- **Resolution / Scaling:** 物理解像度、DPI スケール
-- **Backend:** Rust renderer (`winit` + `wgpu`)
-- **Media:** `examples/realtime_frames.py` 生成 RGBA frame
-- **Window Settings:** display, x, y, width, height, fullscreen
-- **Command:**
-  ```powershell
-  cargo build --manifest-path packages\renderer\Cargo.toml
-  uv run python examples\realtime_frames.py
-  ```
-- **Expected:** Rust renderer window が開き、生成グラデーション frame が滑らかに更新される。
-- **Result:** local windowed smoke として、Python `RealtimeProjection` から Rust renderer を起動し、64x64 RGBA frame を 320x240 window に送信して終了できた。
+- **Resolution / Scaling:** 物理解像度、DPI スケール（モニタごとに異なる場合は各々）
+- **Backend:** Rust renderer (`winit` + `wgpu`), Python `RealtimeProjection`
+- **Media:** 下のフィーダが生成する RGBA グラデーション frame（R=左→右, G=上→下 で向きが分かる）
 
-#### M0: display / monitor 番号の一致確認（pygame vs Rust renderer）
+> **注意:** CLI `projector-controller` は **pygame 経路専用**で、realtime は `--list-monitors` の列挙表示のみ。
+> renderer の投影検証は下の Python フィーダ（`RealtimeProjection`）で行う。
 
-realtime 経路の `--display` 番号は Rust renderer の winit 列挙を権威とする（docs/ARCHITECTURE.md「Display / Monitor 番号の権威」）。pygame 列挙と winit 列挙の番号が実機で一致するかを確認する。
+### 既に取れている結果（2026-05-31）
+
+- **local windowed smoke:** `RealtimeProjection` から renderer を起動し、64x64 RGBA frame を
+  320x240 window に送って終了できた。frame IPC と最小起動は動作。
+- **M0 単一モニタ:** `--list-displays` → `0: 2880x1800`、`--list-monitors` →
+  `0: 2880x1800 @(0,0) scale=2.0 \\.\DISPLAY1`。番号・物理解像度・DPI(scale=2.0) が一致。
+
+### 実機が来たら上から順に実行（各 Result / Issues を埋める）
+
+#### M0: display / monitor 番号の一致（複数モニタで要確認）
 
 ```powershell
 uv run projector-controller --list-displays    # pygame 列挙
-uv run projector-controller --list-monitors    # Rust renderer (winit) 列挙
+uv run projector-controller --list-monitors    # Rust renderer (winit) 列挙＝realtime の権威
 ```
 
-- **Expected:** 同じ物理モニタが両方で同じ番号・同じ物理解像度で並ぶ。外部モニタ接続時は番号順が一致するか特に確認する。
-- **Result（2026-05-31 単一モニタ）:** `--list-displays` → `0: 2880x1800`、`--list-monitors` → `0: 2880x1800 @(0,0) scale=2.0 \\.\DISPLAY1`。単一モニタで番号・物理解像度ともに一致。winit も DPI 物理ピクセル（scale=2.0）を報告。
-- **Issues:** 外部モニタ接続時の番号順一致は未検証（複数モニタで要確認）。
-- **Issues:** 外部 display / fullscreen / DPI / 座標挙動は未確認。
-- **Conclusion:** Rust renderer の最小起動と frame IPC は動作。pygame backend と fullscreen 方式が異なるため、display 番号・fullscreen・DPI・座標挙動を改めて確認する。
+- **Expected:** 同じ物理モニタが両列挙で同じ番号・同じ物理解像度で並ぶ。外部モニタ接続時に番号順が一致するか。
+- **以降の N:** `--list-monitors` で確認した**外部モニタの番号**を、下のフィーダの `DISPLAY` に使う。
+- **Result（複数モニタ）:** 未記録。
+- **Issues:** 番号がずれる場合、realtime は winit 側を権威とする設計どおりに `--list-monitors` の番号で投影されるか確認。
+
+#### フィーダ（R1〜R4 共通。先頭のパラメータだけ各テストで変える）
+
+```powershell
+@'
+import time
+from projector_controller import RealtimeProjection
+
+# === 各テストでここだけ変える ===
+DISPLAY      = 1           # 外部モニタの番号（--list-monitors の値）
+FULLSCREEN   = False
+X, Y         = None, None  # 絶対座標。None,None で DISPLAY 中央
+W, H         = 1280, 720   # ウィンドウ物理サイズ（FULLSCREEN 時は無視）
+FIT          = "contain"   # contain / cover / stretch / native
+SRC_W, SRC_H = 480, 480    # 送るフレーム（正方形：どのアスペクト比のモニタでも fit の差が出る）
+DURATION     = 8           # 秒
+# ================================
+
+def make_frame(w, h):
+    buf = bytearray(w * h * 4)
+    for y in range(h):
+        gy = (y * 255) // max(1, h - 1)
+        for x in range(w):
+            o = (y * w + x) * 4
+            buf[o]     = (x * 255) // max(1, w - 1)  # R: 左→右
+            buf[o + 1] = gy                          # G: 上→下
+            buf[o + 2] = 64
+            buf[o + 3] = 255
+    return buf
+
+pos = None if (X is None and Y is None) else (X, Y)
+frame = make_frame(SRC_W, SRC_H)
+with RealtimeProjection(display=DISPLAY, fullscreen=FULLSCREEN, position=pos,
+                        size=(W, H), fit_mode=FIT) as p:
+    end = time.perf_counter() + DURATION
+    while time.perf_counter() < end:
+        p.submit_frame(frame, width=SRC_W, height=SRC_H, pixel_format="rgba8")
+        time.sleep(0.1)
+'@ | uv run python -
+```
+
+| Test | DISPLAY | FULLSCREEN | X,Y | W,H | FIT | Expected |
+|------|---------|-----------|-----|-----|-----|----------|
+| R1 windowed 中央 | N | False | None,None | 1280,720 | contain | 外部モニタ中央に 1280x720。R 左→右 / G 上→下のグラデが正しい向きで出る |
+| R2 絶対座標 | 任意 | False | 1500,100 | 800,600 | contain | デスクトップ絶対 (1500,100) にウィンドウ左上（値は配置に合わせ調整） |
+| R3 fullscreen | N | True | - | - | contain | 外部モニタ全体を覆う。枠/タイトルバー/OS カーソル/タスクバーが投影面に出ない |
+| R4 fit modes | N | True | - | - | contain→cover→stretch→native | 正方形 SRC の収まり方を比較（16:9 モニタ例: contain=左右余白, cover=上下クロップ, stretch=横に歪み, native=原寸中央） |
+
+各テストの Result / Issues:
+- **R1:** 未記録。
+- **R2:** 未記録。
+- **R3:** 未記録。
+- **R4:** 未記録。
+
+### 確認の着眼点（コードから）
+
+- **DPI / 座標:** winit は**物理座標**で配置する（`render.rs` の `--x/--y` と中央計算）。スケールの違う非主
+  モニタで、`W,H` が指定どおりの物理ピクセルで出るか、中央 / 絶対座標がずれないか。
+- **fullscreen 方式:** winit の **borderless** fullscreen（`Fullscreen::Borderless`）。pygame の
+  `FULLSCREEN` とは別方式なので、排他モードのモード切替・点滅・解像度変更が起きないか、プロジェクタが
+  ネイティブ解像度を受けるか。
+- **番号一致 (M0):** pygame と winit の列挙番号が複数モニタで一致するか（realtime の唯一の未検証ポイント）。
+- **描画:** present mode は Fifo(vsync) 既定。ティアリングなく滑らかか。renderer は frame 到着ごとに redraw する。
+
+### Conclusion
+
+- 2026-05-31: local windowed smoke と M0 単一モニタの一致を確認。外部 display / fullscreen / DPI / 座標 /
+  fit mode（複数モニタ）は**未検証**。
+- 上の M0 + R1〜R4 を外部モニタ / プロジェクタで実施し、各 Result / Issues を埋める。pygame backend と
+  fullscreen 方式が異なるため、表示位置・fullscreen の被覆・DPI 物理ピクセル・座標の一致を重点的に見る。
