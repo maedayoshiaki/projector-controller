@@ -13,16 +13,18 @@ from projector_controller.realtime import (
     RendererMonitor,
     list_renderer_monitors,
 )
+from projector_controller.video import VideoPlayer
 from projector_controller.window import ProjectionWindow
 
 __all__ = [
     "DisplaySpec",
     "Point",
     "ProjectionConfig",
-    "RealtimeProjection",
     "ProjectionWindow",
+    "RealtimeProjection",
     "RendererMonitor",
     "Size",
+    "VideoPlayer",
     "WindowGeometry",
     "list_displays",
     "list_renderer_monitors",

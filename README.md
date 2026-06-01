@@ -64,6 +64,18 @@ with RealtimeProjection(display=0, fullscreen=False, size=(1280, 720)) as projec
 - `"latest"`（既定）: 古い未描画フレームを捨て、最新だけを描く。遅延が累積せず、ライブ生成フレームの投影に向く。
 - `"all"`: 全フレームを描画する。バッファが詰まると producer をブロックして送出ペースを揃える（動画など、1 枚も落としたくない用途向け）。
 
+動画ファイルを投影する場合（PyAV が必要: `pip install "projector-controller[video]"`）:
+
+```python
+from projector_controller import VideoPlayer
+
+with VideoPlayer(display=0, fullscreen=True) as player:
+    player.play("clip.mp4")
+```
+
+`VideoPlayer` は Rust renderer を起動し、**別プロセス**（PyAV でデコード）がフレームを
+renderer に直接送ります。renderer は純フレーム sink のままです（音声は未対応・今後追加）。
+
 ## Requirements
 
 - Python 3.12（`.python-version` で指定）
