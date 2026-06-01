@@ -2,6 +2,7 @@ use std::{
     error::Error,
     io::{self, Write},
     net::SocketAddr,
+    sync::Arc,
 };
 
 use bytemuck::{Pod, Zeroable};
@@ -9,14 +10,16 @@ use wgpu::util::DeviceExt;
 use winit::{
     dpi::{PhysicalPosition, PhysicalSize},
     event::{Event, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
+    event_loop::{ControlFlow, EventLoop, EventLoopWindowTarget},
     window::{Fullscreen, Window, WindowBuilder},
 };
 
+use crate::inbox::FrameInbox;
 use crate::protocol::{FitMode, FrameMessage, PixelFormat};
 
 pub enum RendererEvent {
-    Frame(FrameMessage),
+    /// A frame is waiting in the inbox; the loop pulls it on the main thread.
+    FrameReady,
     Shutdown,
 }
 
@@ -35,6 +38,7 @@ pub fn run(
     config: RendererConfig,
     event_loop: EventLoop<RendererEvent>,
     ready_addr: SocketAddr,
+    inbox: Arc<FrameInbox>,
 ) -> Result<(), Box<dyn Error>> {
     let monitor = event_loop
         .available_monitors()
@@ -75,9 +79,14 @@ pub fn run(
     event_loop.run(move |event, target| {
         target.set_control_flow(ControlFlow::Wait);
         match event {
-            Event::UserEvent(RendererEvent::Frame(frame)) => {
-                state.upload_frame(frame);
-                window.request_redraw();
+            Event::UserEvent(RendererEvent::FrameReady) => {
+                // One frame per signal: Latest has already coalesced to the newest, All
+                // hands them over in order. Present inline so All never silently drops a
+                // frame by overwriting the texture before the next redraw.
+                if let Some(frame) = inbox.pop() {
+                    state.upload_frame(frame);
+                    present(&mut state, target);
+                }
             }
             Event::UserEvent(RendererEvent::Shutdown) => {
                 target.exit();
@@ -86,26 +95,28 @@ pub fn run(
                 WindowEvent::CloseRequested => target.exit(),
                 WindowEvent::Resized(size) => {
                     state.resize(size);
-                    window.request_redraw();
+                    present(&mut state, target);
                 }
                 WindowEvent::ScaleFactorChanged { .. } => {
                     state.resize(window.inner_size());
-                    window.request_redraw();
+                    present(&mut state, target);
                 }
-                WindowEvent::RedrawRequested => match state.render() {
-                    Ok(()) => {}
-                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                        state.resize(state.size);
-                    }
-                    Err(wgpu::SurfaceError::OutOfMemory) => target.exit(),
-                    Err(wgpu::SurfaceError::Timeout) => {}
-                },
+                WindowEvent::RedrawRequested => present(&mut state, target),
                 _ => {}
             },
             _ => {}
         }
     })?;
     Ok(())
+}
+
+fn present(state: &mut RenderState, target: &EventLoopWindowTarget<RendererEvent>) {
+    match state.render() {
+        Ok(()) => {}
+        Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => state.resize(state.size),
+        Err(wgpu::SurfaceError::OutOfMemory) => target.exit(),
+        Err(wgpu::SurfaceError::Timeout) => {}
+    }
 }
 
 struct RenderState {

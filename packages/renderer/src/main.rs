@@ -3,14 +3,17 @@ use std::{
     error::Error,
     io,
     net::{TcpListener, TcpStream},
+    sync::Arc,
     thread,
 };
 
 use winit::event_loop::{EventLoop, EventLoopBuilder};
 
+mod inbox;
 mod protocol;
 mod render;
 
+use inbox::{Backpressure, FrameInbox};
 use protocol::{FitMode, ProtocolMessage};
 use render::{RendererConfig, RendererEvent};
 
@@ -26,19 +29,25 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
+    let inbox = Arc::new(FrameInbox::new(args.backpressure));
     let proxy = event_loop.create_proxy();
     let listener = TcpListener::bind(&args.bind)?;
     let local_addr = listener.local_addr()?;
-    thread::spawn(move || accept_frames(listener, proxy));
+    let accept_inbox = Arc::clone(&inbox);
+    thread::spawn(move || accept_frames(listener, accept_inbox, proxy));
 
-    render::run(args.into_renderer_config(), event_loop, local_addr)
+    render::run(args.into_renderer_config(), event_loop, local_addr, inbox)
 }
 
-fn accept_frames(listener: TcpListener, proxy: winit::event_loop::EventLoopProxy<RendererEvent>) {
+fn accept_frames(
+    listener: TcpListener,
+    inbox: Arc<FrameInbox>,
+    proxy: winit::event_loop::EventLoopProxy<RendererEvent>,
+) {
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
-                if let Err(error) = read_stream(&mut stream, &proxy) {
+                if let Err(error) = read_stream(&mut stream, &inbox, &proxy) {
                     eprintln!("renderer IPC error: {error}");
                 }
             }
@@ -52,12 +61,17 @@ fn accept_frames(listener: TcpListener, proxy: winit::event_loop::EventLoopProxy
 
 fn read_stream(
     stream: &mut TcpStream,
+    inbox: &FrameInbox,
     proxy: &winit::event_loop::EventLoopProxy<RendererEvent>,
 ) -> io::Result<()> {
     while let Some(message) = protocol::read_message(stream)? {
         match message {
             ProtocolMessage::Frame(frame) => {
-                let _ = proxy.send_event(RendererEvent::Frame(frame));
+                // May block in All mode (back-pressuring the producer over TCP) or
+                // overwrite the pending frame in Latest mode. Either way, wake the loop
+                // to drain it; one signal per frame keeps a 1:1 frame->present in All.
+                inbox.push(frame);
+                let _ = proxy.send_event(RendererEvent::FrameReady);
             }
             ProtocolMessage::Shutdown => {
                 let _ = proxy.send_event(RendererEvent::Shutdown);
@@ -78,6 +92,7 @@ struct Args {
     x: Option<i32>,
     y: Option<i32>,
     fit_mode: FitMode,
+    backpressure: Backpressure,
     list_monitors: bool,
 }
 
@@ -92,6 +107,7 @@ impl Args {
             x: None,
             y: None,
             fit_mode: FitMode::Contain,
+            backpressure: Backpressure::Latest,
             list_monitors: false,
         };
 
@@ -107,6 +123,10 @@ impl Args {
                 "--y" => args.y = Some(next_value(&mut values, "--y")?.parse()?),
                 "--fit-mode" => {
                     args.fit_mode = parse_fit_mode(&next_value(&mut values, "--fit-mode")?)?;
+                }
+                "--backpressure" => {
+                    args.backpressure =
+                        parse_backpressure(&next_value(&mut values, "--backpressure")?)?;
                 }
                 "--help" | "-h" => {
                     print_help();
@@ -171,6 +191,14 @@ fn parse_fit_mode(value: &str) -> Result<FitMode, Box<dyn Error>> {
     }
 }
 
+fn parse_backpressure(value: &str) -> Result<Backpressure, Box<dyn Error>> {
+    match value {
+        "latest" => Ok(Backpressure::Latest),
+        "all" => Ok(Backpressure::All),
+        _ => Err(format!("unsupported backpressure mode: {value}").into()),
+    }
+}
+
 fn print_help() {
     println!(
         "\
@@ -186,6 +214,8 @@ Options:
   --x N                 window x in desktop coordinates
   --y N                 window y in desktop coordinates
   --fit-mode MODE       contain, cover, stretch, or native (default: contain)
+  --backpressure MODE   latest = drop stale frames, keep newest (default);
+                        all = render every frame, pacing the producer when busy
 "
     );
 }
