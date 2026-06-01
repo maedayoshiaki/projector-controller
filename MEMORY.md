@@ -59,7 +59,9 @@
 - `av` / `sounddevice` は `[video]` extra（heavy）。`media.py` で遅延 import し、`import projector_controller` には影響させない。音声ストリーム無し / 出力デバイス無し / `--mute` 時は wall-clock の映像のみにフォールバック（`AudioMaster.start()` が False を返す）。
 - realtime の copy-TCP 転送上限は手元実機で ~1615 MB/s（1080p ~195fps 相当）。end-to-end でも 1080p で `all`=113.9fps / `latest`=130.9fps を確認し、**1080p60 を ~1.9× 達成**（shm も受信バッファ再利用も不要、per-frame alloc のまま）。4K60(~2GB/s) を狙うなら shm/ring buffer と present 方式(vsync 解除)を再評価する。
 - A/V 同期は音声 master。`AudioMaster` が別スレッドで音声を再生し、`clock()` ＝**音声開始からの wall-time**を返す（音声は実時間で鳴るので滑らか）。`stream_frames_synced` が映像を `clock()+offset` で出し、`play()` は映像ループ前に `started()` を待って起動カクつきを防ぐ。**注意:** 当初は clock を「書込済み秒 − 出力 latency」にしていたが、sounddevice の blocking write が**チャンク状・バースト**で進むため映像がカクついた（実測 interval max 503ms・>50ms が 22/120 フレーム）。wall-time 基準に変えて interval 33.3ms 固定・stutter 0 に改善。renderer present 遅延は手動 `--av-offset-ms`（既定 0）で吸収、厳密計測は未実装。
-- 動画のテストクリップを自前生成するときは**符号化品質に注意**。低ビットレート mpeg4 ＋ 動くグラデ（圧縮に不利）＋ 低解像度をフルスクリーン拡大すると、renderer は無実でもブロックノイズが目立つ。品質確認は高ビットレート/高解像度クリップか実動画で行う（直接フレーム経路 R1〜R4 はコーデック非経由で綺麗）。
+- 動画のテストクリップを自前生成するときは**符号化品質に注意**。低ビットレート mpeg4 ＋ 動くグラデ（圧縮に不利）＋ 低解像度をフルスクリーン拡大すると、renderer は無実でもブロックノイズが目立つ。品質確認は高ビットレート/高解像度クリップか実動画で行う（直接フレーム経路 R1〜R4 はコーデック非経由で綺麗）。スマホ動画は **Dolby Vision HEVC（DOVI side data 有り）** のこともある。
+- **動画の回転メタ（display matrix）を必ず適用する**。スマホ縦撮りは landscape 保存＋回転フラグなので、無視すると横倒しに出る（実写 .MOV で露見した実バグ）。PyAV 17 は `stream.metadata['rotate']` も `stream.side_data` も出さず、`SideData.rotation` も None。**frame.side_data[Type.DISPLAYMATRIX] の 36byte（9×int32, 16.16 固定小数）を自前で解く**。時計回り角 = `atan2(m[1], m[0])`（ffmpeg の av_display_rotation_get が atan2 を負にし get_rotation が再度負にするので二重否定で相殺）。`media._rotation_from_matrix` で 0/90/180/270 に丸め、av の `transpose`（clock/cclock）フィルタで適用。`decode_video_frames(rotate=)` / `VideoPlayer.play(rotate=)` で手動上書き可。実写 iPhone 縦動画（90°）で自動回転＝正しい向き・画質・音 OK を実機確認。
+- realtime media プロセスの実機検証は**ファイル先頭を時間 cap**（`itertools.takewhile(lambda f: f.pts < CAP, decode_video_frames(...))`）して行うと、長尺動画でも短時間で確認できる。HEVC 1080p のソフトデコードは手元実機で ~84fps（30fps 再生に十分）。
 
 ## Domain Facts
 

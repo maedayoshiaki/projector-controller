@@ -77,7 +77,8 @@ with VideoPlayer(display=0, fullscreen=True) as player:
 `VideoPlayer` は Rust renderer を起動し、**別プロセス**（PyAV でデコード）が映像フレームを
 renderer に直接送り、音声は `sounddevice` で再生します（音声を master clock にして A/V 同期）。
 renderer は純フレーム sink のままです。`play(..., mute=True)` で映像のみ、`av_offset_ms=` で
-映像を早出しして renderer 遅延を補正できます。
+映像を早出しして renderer 遅延を補正できます。スマホの縦撮り動画など**回転メタ付きの動画は
+自動で正しい向きに回転**します（`rotate=0/90/180/270` で手動上書きも可）。
 
 ### fit mode（画像/映像を投影面にどう収めるか）
 

@@ -98,6 +98,24 @@ def test_stream_frames_synced_sends_remaining_when_audio_done() -> None:
         receiver.close()
 
 
+def test_rotation_from_matrix_detects_portrait_90() -> None:
+    # iPhone portrait: stored landscape with a 90-degree-clockwise display matrix.
+    raw = struct.pack("<9i", 0, 65536, 0, -65536, 0, 0, 0, 0, 1073741824)
+    assert media._rotation_from_matrix(raw) == 90
+
+
+def test_rotation_from_matrix_identity_is_zero() -> None:
+    raw = struct.pack("<9i", 65536, 0, 0, 0, 65536, 0, 0, 0, 1073741824)
+    assert media._rotation_from_matrix(raw) == 0
+
+
+def test_rotation_from_matrix_handles_270_and_180() -> None:
+    cclock = struct.pack("<9i", 0, -65536, 0, 65536, 0, 0, 0, 0, 1073741824)
+    flip = struct.pack("<9i", -65536, 0, 0, 0, -65536, 0, 0, 0, 1073741824)
+    assert media._rotation_from_matrix(cclock) == 270
+    assert media._rotation_from_matrix(flip) == 180
+
+
 def test_video_player_play_requires_open() -> None:
     player = VideoPlayer(renderer_path=Path("renderer-bin"))
     with pytest.raises(RuntimeError, match="not open"):

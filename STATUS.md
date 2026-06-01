@@ -41,6 +41,7 @@
 
 ## Recently Done
 
+- 2026-06-01 **実写動画（iPhone 縦撮り HEVC/Dolby Vision .MOV）で #2 を最終確認 → 完璧（向き・画質・音 OK）**。過程で**回転バグを発見・恒久修正**: スマホ縦動画は landscape 保存＋回転メタなので、無視して横倒しに出ていた。PyAV 17 は回転角を出さないため frame の `DISPLAYMATRIX`（9×int32, 16.16 固定）を自前で解いて 0/90/180/270 を判定し、av `transpose` フィルタで自動回転（`decode_video_frames`/`VideoPlayer.play` に `rotate` 手動上書きも追加）。テスト `_rotation_from_matrix`（90/180/270/0）追加。検証 44 passed。HEVC 1080p ソフトデコードは ~84fps で 30fps 再生に十分。
 - 2026-06-01 **動画フルスクリーン再生（#2）の実機デバッグ**。外部 fullscreen で (1) カクつき/同期ずれ → 計測で音声 master clock のチャンク状進行が原因と特定し **wall-time 基準に修正**（interval 33.3ms 固定・stutter 0、commit `f015b4a`）。(2) ノイズ → **テスト内容（剰余ラップ＋動き）由来**と切り分け、素直な静止グラデ高画質版は「綺麗・ノイズなし」で renderer/パイプラインは正常と確認。残: 実写動画での最終確認、起動 ~0.8s の音声デバイス open 待ち短縮（任意）。
 - 2026-06-01 **`projtest-002` を外部モニタで実施し全 PASS**。M0（複数モニタで pygame `--list-displays` と winit `--list-monitors` の番号・物理解像度が完全一致。外部=index 1, 1920x1200, scale 1.5, 原点 (511,-1200)）、R1 中央 / R2 絶対座標（負 Y 含む）/ R3 borderless fullscreen クリーン被覆 / R4 fit 切替（概ね良好）。混在 DPI（内蔵 2.0 / 外部 1.5）でも崩れなし。外部での 1080p スループットは all 112.9 / latest 117.1 fps（1080p60 達成）。#2 の動画フルスクリーン再生（映像 + 音声）も完走（returncode 0）。→ Rust renderer の実機検証が完了し STATUS の Blocked を解消。fit mode の説明を README に追記。
 - 2026-06-01 realtime #1（性能）の **end-to-end 実測で 1080p60 達成を確認**（手元実機, 1080p 300 frames）: `all`=113.9 fps / 945 MB/s、`latest`=130.9 fps / 1085 MB/s。1080p60 を ~1.9× 上回り、遅延 bounded・OOM/hang なし。**shm も受信バッファ再利用も不要を確定**（per-frame alloc のまま 114fps）。#1 を `Done` に。

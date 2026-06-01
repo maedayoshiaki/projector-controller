@@ -18,12 +18,15 @@ lazily so the rest of the package stays importable without them.
 from __future__ import annotations
 
 import argparse
+import math
 import socket
+import struct
 import threading
 import time
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from projector_controller.config import FitMode, normalize_fit_mode
 from projector_controller.realtime import _encode_frame_header, _encode_quit_header
@@ -43,11 +46,13 @@ class DecodedFrame:
     pts: float
 
 
-def decode_video_frames(path: str | Path) -> Iterator[DecodedFrame]:
+def decode_video_frames(path: str | Path, *, rotate: int | None = None) -> Iterator[DecodedFrame]:
     """Decode a video file to tightly-packed RGBA8 frames using PyAV.
 
     Yields frames in presentation order. ``pts`` is seconds from the stream start; frames
-    without a timestamp fall back to a running counter at the stream's average rate.
+    without a timestamp fall back to a running counter at the stream's average rate. The
+    file's display-matrix rotation (e.g. phone portrait videos stored landscape) is applied
+    automatically; pass ``rotate`` (0/90/180/270, clockwise) to override the detected angle.
     """
 
     import av  # lazy: PyAV is the optional [video] extra
@@ -56,17 +61,101 @@ def decode_video_frames(path: str | Path) -> Iterator[DecodedFrame]:
         stream = container.streams.video[0]
         rate = stream.average_rate
         fallback_step = 1.0 / float(rate) if rate else 1.0 / 30.0
-        for index, frame in enumerate(container.decode(stream)):
-            rgba = frame.reformat(format="rgba")
-            width = int(rgba.width)
-            height = int(rgba.height)
-            plane = rgba.planes[0]
-            data = _pack_rgba(
-                bytes(plane), width=width, height=height, line_size=int(plane.line_size)
-            )
-            frame_time = frame.time
-            pts = float(frame_time) if frame_time is not None else index * fallback_step
-            yield DecodedFrame(data=data, width=width, height=height, pts=pts)
+        graph: Any = None
+        configured = False
+        index = 0
+        for frame in container.decode(stream):
+            if not configured:
+                theta = rotate if rotate is not None else _display_rotation(frame)
+                graph = _transpose_graph(frame, stream.time_base, theta)
+                configured = True
+            for out in _rotate_frame(graph, frame):
+                rgba = out.reformat(format="rgba")
+                width = int(rgba.width)
+                height = int(rgba.height)
+                plane = rgba.planes[0]
+                data = _pack_rgba(
+                    bytes(plane), width=width, height=height, line_size=int(plane.line_size)
+                )
+                frame_time = out.time
+                pts = float(frame_time) if frame_time is not None else index * fallback_step
+                yield DecodedFrame(data=data, width=width, height=height, pts=pts)
+                index += 1
+
+
+def _display_rotation(frame: Any) -> int:
+    """Clockwise display rotation (0/90/180/270) from a frame's display matrix, else 0."""
+
+    from av.sidedata.sidedata import Type
+
+    try:
+        matrix = frame.side_data.get(Type.DISPLAYMATRIX)
+        if matrix is None:
+            return 0
+        return _rotation_from_matrix(bytes(matrix))
+    except Exception:
+        return 0
+
+
+def _rotation_from_matrix(matrix: bytes) -> int:
+    """Decode an ffmpeg 3x3 display matrix (9 int32, 16.16 fixed) to a clockwise angle.
+
+    Mirrors ffmpeg's autorotate: the two sign flips (av_display_rotation_get negates, then
+    get_rotation negates again) cancel, so the clockwise angle is ``atan2`` of the matrix.
+    """
+
+    values = struct.unpack("<9i", matrix)
+    scale_x = math.hypot(values[0] / 65536.0, values[3] / 65536.0)
+    scale_y = math.hypot(values[1] / 65536.0, values[4] / 65536.0)
+    if not scale_x or not scale_y:
+        return 0
+    angle = math.degrees(
+        math.atan2((values[1] / 65536.0) / scale_y, (values[0] / 65536.0) / scale_x)
+    )
+    return int(round((round(angle) % 360) / 90.0) * 90) % 360
+
+
+def _transpose_graph(frame: Any, time_base: Any, theta: int) -> Any:
+    """Build a PyAV transpose filter graph for a clockwise ``theta``, or None for 0."""
+
+    steps = {90: ["clock"], 180: ["clock", "clock"], 270: ["cclock"]}.get(theta)
+    if not steps:
+        return None
+
+    from av.filter import Graph
+
+    graph = Graph()
+    node = graph.add_buffer(
+        width=frame.width,
+        height=frame.height,
+        format=frame.format.name,
+        time_base=time_base,
+    )
+    for step in steps:
+        transpose = graph.add("transpose", step)
+        node.link_to(transpose)
+        node = transpose
+    node.link_to(graph.add("buffersink"))
+    graph.configure()
+    return graph
+
+
+def _rotate_frame(graph: Any, frame: Any) -> list[Any]:
+    """Pass a frame through the transpose graph, or return it unchanged when graph is None."""
+
+    if graph is None:
+        return [frame]
+
+    import av
+
+    graph.push(frame)
+    rotated: list[Any] = []
+    while True:
+        try:
+            rotated.append(graph.pull())
+        except (av.error.BlockingIOError, av.error.EOFError):
+            break
+    return rotated
 
 
 def _pack_rgba(raw: bytes, *, width: int, height: int, line_size: int) -> bytes:
@@ -247,13 +336,14 @@ def play(
     fit_mode: FitMode | None = None,
     mute: bool = False,
     av_offset: float = 0.0,
+    rotate: int | None = None,
 ) -> None:
     """Decode ``path`` and stream it to the renderer, syncing video to audio when possible."""
 
     audio = None if mute else AudioMaster(path)
     use_audio = audio.start() if audio is not None else False
     try:
-        frames = decode_video_frames(path)
+        frames = decode_video_frames(path, rotate=rotate)
         if use_audio and audio is not None:
             # Wait for audio to actually start before pacing video to it, otherwise the
             # first frames are held while the output device opens (a startup freeze).
@@ -307,6 +397,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=0.0,
         help="present video this many ms early to compensate for renderer latency",
     )
+    parser.add_argument(
+        "--rotate",
+        type=int,
+        choices=(0, 90, 180, 270),
+        default=None,
+        help="rotate video clockwise (default: auto-detect from the file's display matrix)",
+    )
     parser.add_argument("--connect-timeout", type=float, default=5.0)
     args = parser.parse_args(argv)
 
@@ -323,6 +420,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             fit_mode=fit_mode,
             mute=args.mute,
             av_offset=args.av_offset_ms / 1000.0,
+            rotate=args.rotate,
         )
         # Tell the renderer the stream is finished so it can shut down cleanly.
         sock.sendall(_encode_quit_header())
