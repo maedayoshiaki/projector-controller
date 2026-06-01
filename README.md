@@ -59,6 +59,11 @@ with RealtimeProjection(display=0, fullscreen=False, size=(1280, 720)) as projec
     projection.submit_frame(frame, width=width, height=height)
 ```
 
+`backpressure` で、renderer が描画より速くフレームを受け取ったときの挙動を選べます:
+
+- `"latest"`（既定）: 古い未描画フレームを捨て、最新だけを描く。遅延が累積せず、ライブ生成フレームの投影に向く。
+- `"all"`: 全フレームを描画する。バッファが詰まると producer をブロックして送出ペースを揃える（動画など、1 枚も落としたくない用途向け）。
+
 ## Requirements
 
 - Python 3.12（`.python-version` で指定）

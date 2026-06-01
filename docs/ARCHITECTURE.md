@@ -132,6 +132,11 @@ graph TD
 - 初期 protocol は copy-based。`RGBA8` / `BGRA8` の `width * height * 4` bytes を frame ごとに送る。
 - Rust 側は GPU texture を再利用し、frame 到着ごとに texture upload して fullscreen quad で描画する。
 - `contain` / `cover` / `stretch` / `native` は Rust 側で quad 頂点を更新して適用する。
+- 高頻度時のフロー制御は `RealtimeProjection(backpressure=...)` / renderer の `--backpressure` で選ぶ:
+  `latest`（既定。最新フレーム優先で古い未描画フレームを破棄。producer は止めない）/
+  `all`（全フレーム描画。renderer 側の小バッファが満杯になると reader をブロックし、TCP backpressure で
+  producer の送出をペースする）。renderer 内は単一の frame inbox で受け、**無制限キュー増大を防ぐ**。
+  frame header は `TCP_NODELAY` で即送する（Nagle で payload 待ちにしない）。
 
 理由: Python process 内で GUI event loop と GPU device を握るより、Rust renderer process に分離した方が GIL と Python 側のスケジューリング影響を受けにくい。将来 shared memory / ring buffer へ移す場合も、frame sink の境界が明確になる。
 
@@ -209,8 +214,8 @@ Rust renderer の `fullscreen=True` は `winit` の borderless fullscreen を使
 
 ## Open Decisions
 
-- 設定ファイル形式を導入するか、導入するならどの形式にするか。
-- Rust renderer の frame IPC を shared memory / ring buffer に進めるか。
-- 動画デコードと音声同期をどのレイヤで扱うか。
+- 設定ファイル形式を導入するか、導入するならどの形式にするか（トリガ待ちで据え置き。導入時は TOML 候補）。
+- ~~Rust renderer の frame IPC を shared memory / ring buffer に進めるか~~ → **当面見送り（2026-06-01 決定）**。実機計測で copy-TCP は ~1615 MB/s（1080p60 必要帯域の ~3.2 倍）。1080p60 は copy で十分なので、shm より先に backpressure とアロケーション削減で固める。4K60 を本気で狙う段で再評価。
+- 動画デコードと音声同期をどのレイヤで扱うか → **専用 media プロセス（案 C）に決定（2026-06-01）**。renderer は純 frame sink のまま、media プロセスがデコード・音声・A/V 同期を持ち同一 protocol で供給する。デコーダ依存（PyAV 候補）と音声/同期方式は要確認（`PLANS.md` 参照）。
 - プロジェクションマッピングや台形補正をいつ扱うか。
 - ディスプレイ相対座標の指定（現状は絶対座標のみ。必要なら pygame-ce 移行か ctypes で対応）。

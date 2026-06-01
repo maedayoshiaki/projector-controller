@@ -20,6 +20,7 @@ from typing import IO, Literal, Self
 from projector_controller.config import FitMode, Point, Size, normalize_fit_mode
 
 FramePixelFormat = Literal["rgba8", "bgra8"]
+Backpressure = Literal["latest", "all"]
 
 _FRAME_HEADER = struct.Struct("<4sIIBBHI")
 _FRAME_MAGIC = b"PCF1"
@@ -73,6 +74,7 @@ class RealtimeProjection:
         position: Point | tuple[int, int] | None = None,
         size: Size | tuple[int, int] = (1280, 720),
         fit_mode: FitMode = "contain",
+        backpressure: Backpressure = "latest",
         renderer_path: str | Path | None = None,
         connect_timeout: float = 5.0,
     ) -> None:
@@ -88,6 +90,10 @@ class RealtimeProjection:
         )
         self.size = size if isinstance(size, Size) else Size.from_tuple(size)
         self.fit_mode = normalize_fit_mode(fit_mode)
+        if backpressure not in ("latest", "all"):
+            msg = f"unsupported backpressure mode: {backpressure}"
+            raise ValueError(msg)
+        self.backpressure = backpressure
         self.renderer_path = Path(renderer_path) if renderer_path is not None else None
         self.connect_timeout = connect_timeout
         self._process: subprocess.Popen[str] | None = None
@@ -117,6 +123,9 @@ class RealtimeProjection:
             address = self._read_ready_address()
             self._socket = socket.create_connection(address, timeout=self.connect_timeout)
             self._socket.settimeout(None)
+            # Send small frame headers immediately instead of letting Nagle hold them
+            # back waiting for the payload; frame latency matters more than packet count.
+            self._socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             self._spawn_drain(self._process.stdout, self._stdout_lines)
         except Exception:
             self.close()
@@ -209,6 +218,8 @@ class RealtimeProjection:
             str(self.size.height),
             "--fit-mode",
             self.fit_mode,
+            "--backpressure",
+            self.backpressure,
         ]
         if self.fullscreen:
             command.append("--fullscreen")

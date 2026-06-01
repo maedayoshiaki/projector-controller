@@ -39,12 +39,27 @@ def test_realtime_renderer_command_uses_window_options() -> None:
         "480",
         "--fit-mode",
         "cover",
+        "--backpressure",
+        "latest",
         "--fullscreen",
         "--x",
         "10",
         "--y",
         "20",
     ]
+
+
+def test_realtime_renderer_command_passes_backpressure_all() -> None:
+    projection = RealtimeProjection(renderer_path=Path("renderer-bin"), backpressure="all")
+
+    command = projection._renderer_command()
+
+    assert command[command.index("--backpressure") + 1] == "all"
+
+
+def test_realtime_projection_rejects_unknown_backpressure() -> None:
+    with pytest.raises(ValueError, match="backpressure"):
+        RealtimeProjection(renderer_path=Path("renderer-bin"), backpressure="bogus")  # type: ignore[arg-type]
 
 
 def test_realtime_frame_header_encodes_protocol_fields() -> None:
