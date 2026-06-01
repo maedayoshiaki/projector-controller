@@ -211,7 +211,8 @@ with RealtimeProjection(display=DISPLAY, fullscreen=FULLSCREEN, position=pos,
   - 初回: **カクつき + 同期ずれ**を確認。計測（push 間隔 / 音声 clock vs pts）で原因を特定 = 音声 master clock が「書込済み秒（チャンク状・バースト）」で進み映像が乱れていた（interval max 503ms・>50ms が 22/120）。→ **clock を「音声開始からの wall-time」に修正**（映像は `started()` まで待機）。再計測で interval 33.3ms 固定・stutter 0、ユーザーも「滑らかになった」と確認（commit `f015b4a`）。
   - 次に **ノイズ**を指摘。切り分けの結果、**テスト内容**（全チャンネル `%256` 剰余ラップ + 動き＝コーデック / YUV420 に最悪）が原因と判明。**素直な静止グラデ（R1〜R4 と同パターン）を高画質 libx264 で動画化すると「綺麗・ノイズなし」**＝ renderer / パイプラインは正常、実写動画は綺麗に出る見込み。
   - **実写動画で最終確認（iPhone 縦撮り HEVC/Dolby Vision .MOV, 1920x1080@30, 42.7s, AAC 48kHz）:** 当初 **横倒し**で再生 → 回転メタ（display matrix）未適用の実バグと判明。frame の `DISPLAYMATRIX` を自前で解いて自動回転を実装（clock/cclock）。再生し直して **向き・画質・音すべて OK＝完璧**（ユーザー確認）。HEVC 1080p ソフトデコードは ~84fps で 30fps 再生に十分。
-  - 残: A/V リップシンクの厳密評価、起動時 ~0.8s の音声デバイス open 待ちの短縮（任意）。
+  - 起動待ち短縮: `AudioMaster.start()` 内の `sounddevice.query_devices()`（PortAudio 同期初期化 ~350ms）を除去し、デバイス可否を worker の stream open 成否で判定（失敗時は wall-clock fallback）。起動を **~704ms → ~330ms に半減**（残りはデバイス open 自体）。
+  - 残: A/V リップシンクの厳密評価、present 遅延の厳密計測（任意）。
 
 ### 確認の着眼点（コードから）
 

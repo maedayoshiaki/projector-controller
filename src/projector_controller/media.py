@@ -214,13 +214,11 @@ class AudioMaster:
             return self._finished
 
     def start(self) -> bool:
+        # Whether an output device is usable is decided when the worker opens the stream
+        # (a failure leaves started() False, so the caller falls back to wall-clock pacing).
+        # Probing devices here would trigger a slow PortAudio init (~350 ms) up front, on
+        # top of the init the stream open does anyway, delaying playback for nothing.
         if not _has_audio_stream(self._path):
-            return False
-        try:
-            import sounddevice
-
-            sounddevice.query_devices(kind="output")
-        except Exception:
             return False
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
@@ -350,6 +348,9 @@ def play(
             deadline = time.perf_counter() + 2.0
             while not audio.started() and not audio.is_done() and time.perf_counter() < deadline:
                 time.sleep(0.005)
+            # If the device never opened (no usable output), pace by wall clock instead.
+            use_audio = audio.started()
+        if use_audio and audio is not None:
             stream_frames_synced(
                 sock, frames, audio.clock, audio.is_done, fit_mode=fit_mode, offset=av_offset
             )
