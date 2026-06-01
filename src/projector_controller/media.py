@@ -102,15 +102,23 @@ class AudioMaster:
     def __init__(self, path: str | Path) -> None:
         self._path = str(path)
         self._lock = threading.Lock()
-        self._written = 0.0  # seconds of audio handed to the device
-        self._latency = 0.0  # device output latency, so clock() ~ played position
+        # Audio plays at real time, so the playback position is wall time since the first
+        # sample was written. Anchoring to wall time gives a smooth clock; tracking
+        # bytes-written instead advanced in coarse, bursty steps and made video stutter.
+        self._start_wall: float | None = None
         self._finished = False
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
     def clock(self) -> float:
         with self._lock:
-            return max(0.0, self._written - self._latency)
+            if self._start_wall is None:
+                return 0.0
+            return time.perf_counter() - self._start_wall
+
+    def started(self) -> bool:
+        with self._lock:
+            return self._start_wall is not None
 
     def is_done(self) -> bool:
         with self._lock:
@@ -147,17 +155,16 @@ class AudioMaster:
                 with sd.RawOutputStream(
                     samplerate=rate, channels=_AUDIO_CHANNELS, dtype="int16"
                 ) as out:
-                    with self._lock:
-                        self._latency = float(out.latency)
                     for frame in container.decode(stream):
                         if self._stop.is_set():
                             break
                         for resampled in resampler.resample(frame):
                             samples = int(resampled.samples)
                             tight = samples * _AUDIO_CHANNELS * _AUDIO_BYTES_PER_SAMPLE
-                            out.write(bytes(resampled.planes[0])[:tight])
                             with self._lock:
-                                self._written += samples / rate
+                                if self._start_wall is None:
+                                    self._start_wall = time.perf_counter()
+                            out.write(bytes(resampled.planes[0])[:tight])
         except Exception:
             # No usable audio path; the video side falls back to its own pacing.
             pass
@@ -248,6 +255,11 @@ def play(
     try:
         frames = decode_video_frames(path)
         if use_audio and audio is not None:
+            # Wait for audio to actually start before pacing video to it, otherwise the
+            # first frames are held while the output device opens (a startup freeze).
+            deadline = time.perf_counter() + 2.0
+            while not audio.started() and not audio.is_done() and time.perf_counter() < deadline:
+                time.sleep(0.005)
             stream_frames_synced(
                 sock, frames, audio.clock, audio.is_done, fit_mode=fit_mode, offset=av_offset
             )

@@ -58,7 +58,8 @@
 - PyAV の plane はパディングを持つ。映像 `reformat("rgba")` は行ごとに `line_size > width*4`、音声 `resample("s16")` は plane が `buffer_size > samples*ch*2`。renderer protocol は tightly-packed なので必ず tight 長に切る（映像=`_pack_rgba` で行ごと、音声=`bytes(plane)[:samples*ch*2]`）。
 - `av` / `sounddevice` は `[video]` extra（heavy）。`media.py` で遅延 import し、`import projector_controller` には影響させない。音声ストリーム無し / 出力デバイス無し / `--mute` 時は wall-clock の映像のみにフォールバック（`AudioMaster.start()` が False を返す）。
 - realtime の copy-TCP 転送上限は手元実機で ~1615 MB/s（1080p ~195fps 相当）。end-to-end でも 1080p で `all`=113.9fps / `latest`=130.9fps を確認し、**1080p60 を ~1.9× 達成**（shm も受信バッファ再利用も不要、per-frame alloc のまま）。4K60(~2GB/s) を狙うなら shm/ring buffer と present 方式(vsync 解除)を再評価する。
-- A/V 同期は音声 master。`AudioMaster` が別スレッドで音声を再生し `clock()`（= 書込済み秒 − 出力 latency）を提供、`stream_frames_synced` が映像を `clock()+offset` で出す。renderer present 遅延は MVP では手動 `--av-offset-ms`（既定 0）で吸収し、厳密計測は未実装。
+- A/V 同期は音声 master。`AudioMaster` が別スレッドで音声を再生し、`clock()` ＝**音声開始からの wall-time**を返す（音声は実時間で鳴るので滑らか）。`stream_frames_synced` が映像を `clock()+offset` で出し、`play()` は映像ループ前に `started()` を待って起動カクつきを防ぐ。**注意:** 当初は clock を「書込済み秒 − 出力 latency」にしていたが、sounddevice の blocking write が**チャンク状・バースト**で進むため映像がカクついた（実測 interval max 503ms・>50ms が 22/120 フレーム）。wall-time 基準に変えて interval 33.3ms 固定・stutter 0 に改善。renderer present 遅延は手動 `--av-offset-ms`（既定 0）で吸収、厳密計測は未実装。
+- 動画のテストクリップを自前生成するときは**符号化品質に注意**。低ビットレート mpeg4 ＋ 動くグラデ（圧縮に不利）＋ 低解像度をフルスクリーン拡大すると、renderer は無実でもブロックノイズが目立つ。品質確認は高ビットレート/高解像度クリップか実動画で行う（直接フレーム経路 R1〜R4 はコーデック非経由で綺麗）。
 
 ## Domain Facts
 
