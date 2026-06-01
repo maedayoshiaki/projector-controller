@@ -207,7 +207,10 @@ with RealtimeProjection(display=DISPLAY, fullscreen=FULLSCREEN, position=pos,
 - **R3:** **PASS**。外部全体をクリーンに覆い、枠・タイトルバー・OS カーソル・タスクバーは投影面に出なかった（winit borderless fullscreen）。
 - **R4:** **概ね PASS**（ユーザーは fit の差を判別しづらかったが「多分うまくいっている」）。fit mode の意味は README に追記した。
 - **追加: 1080p スループット（外部 display 1）:** `all`=112.9 fps / 936 MB/s、`latest`=117.1 fps / 971 MB/s。外部（scale 1.5）でも **1080p60 を達成**（内蔵とほぼ同等）。
-- **追加: 動画フルスクリーン（#2 VideoPlayer, display 1）:** 移動グラデ + 440Hz サイン音の 4s クリップを fullscreen 再生し returncode 0。映像 + 音声の実機再生を確認（A/V の体感は別途）。
+- **追加: 動画フルスクリーン（#2 VideoPlayer, display 1）:** A/V クリップを外部 fullscreen 再生して体感評価。
+  - 初回: **カクつき + 同期ずれ**を確認。計測（push 間隔 / 音声 clock vs pts）で原因を特定 = 音声 master clock が「書込済み秒（チャンク状・バースト）」で進み映像が乱れていた（interval max 503ms・>50ms が 22/120）。→ **clock を「音声開始からの wall-time」に修正**（映像は `started()` まで待機）。再計測で interval 33.3ms 固定・stutter 0、ユーザーも「滑らかになった」と確認（commit `f015b4a`）。
+  - 次に **ノイズ**を指摘。切り分けの結果、**テスト内容**（全チャンネル `%256` 剰余ラップ + 動き＝コーデック / YUV420 に最悪）が原因と判明。**素直な静止グラデ（R1〜R4 と同パターン）を高画質 libx264 で動画化すると「綺麗・ノイズなし」**＝ renderer / パイプラインは正常、実写動画は綺麗に出る見込み。
+  - 残: 実写動画ファイルでの最終確認、A/V リップシンクの厳密評価、起動時 ~0.8s の音声デバイス open 待ちの短縮（任意）。
 
 ### 確認の着眼点（コードから）
 

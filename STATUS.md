@@ -41,6 +41,7 @@
 
 ## Recently Done
 
+- 2026-06-01 **動画フルスクリーン再生（#2）の実機デバッグ**。外部 fullscreen で (1) カクつき/同期ずれ → 計測で音声 master clock のチャンク状進行が原因と特定し **wall-time 基準に修正**（interval 33.3ms 固定・stutter 0、commit `f015b4a`）。(2) ノイズ → **テスト内容（剰余ラップ＋動き）由来**と切り分け、素直な静止グラデ高画質版は「綺麗・ノイズなし」で renderer/パイプラインは正常と確認。残: 実写動画での最終確認、起動 ~0.8s の音声デバイス open 待ち短縮（任意）。
 - 2026-06-01 **`projtest-002` を外部モニタで実施し全 PASS**。M0（複数モニタで pygame `--list-displays` と winit `--list-monitors` の番号・物理解像度が完全一致。外部=index 1, 1920x1200, scale 1.5, 原点 (511,-1200)）、R1 中央 / R2 絶対座標（負 Y 含む）/ R3 borderless fullscreen クリーン被覆 / R4 fit 切替（概ね良好）。混在 DPI（内蔵 2.0 / 外部 1.5）でも崩れなし。外部での 1080p スループットは all 112.9 / latest 117.1 fps（1080p60 達成）。#2 の動画フルスクリーン再生（映像 + 音声）も完走（returncode 0）。→ Rust renderer の実機検証が完了し STATUS の Blocked を解消。fit mode の説明を README に追記。
 - 2026-06-01 realtime #1（性能）の **end-to-end 実測で 1080p60 達成を確認**（手元実機, 1080p 300 frames）: `all`=113.9 fps / 945 MB/s、`latest`=130.9 fps / 1085 MB/s。1080p60 を ~1.9× 上回り、遅延 bounded・OOM/hang なし。**shm も受信バッファ再利用も不要を確定**（per-frame alloc のまま 114fps）。#1 を `Done` に。
 - 2026-06-01 realtime #2 の **D2（音声 + A/V 同期）完成**（`feature/realtime-video-mvp`）。`sounddevice` を `[video]` extra に追加。`AudioMaster` が別スレッドで音声を再生し `clock()`（書込済み秒 − 出力 latency）を提供、`stream_frames_synced` が映像を**音声 master clock** に同期。`--av-offset-ms`（既定 0）で renderer 遅延を手動補正。音声無し/出力デバイス無し/`--mute` は wall-clock 映像のみにフォールバック。PyAV の音声 plane も末尾パディングを持つため `samples*ch*2` に切る。検証スタック全緑（Python 41 passed）＋**サイン波付き A/V クリップ**の同期再生 smoke 成功（returncode 0）。MEMORY に realtime の確定事項を昇格。
