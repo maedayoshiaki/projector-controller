@@ -85,7 +85,7 @@ GPU / display
 | `projector_controller.window` | `ProjectionWindow` 公開 API | `config`, backend adapter |
 | `projector_controller.realtime` | `RealtimeProjection` 公開 API、Rust renderer process 起動、frame IPC | `config`, Rust renderer binary |
 | `projector_controller.video` | `VideoPlayer` 公開 API。renderer + 専用 media プロセスの統制（案 C） | `config`, `realtime`（spawn ヘルパ） |
-| `projector_controller.media` | 専用 media プロセス。PyAV で動画をデコードし frame protocol で renderer に直接 push | `config`, `realtime`（protocol）, `av` |
+| `projector_controller.media` | 専用 media プロセス。PyAV で映像をデコードし frame protocol で renderer に直接 push、音声は sounddevice で再生し音声 master で A/V 同期 | `config`, `realtime`（protocol）, `av`, `sounddevice` |
 | `projector_controller.config` | 表示設定、ウィンドウ設定、値オブジェクト | なし |
 | `projector_controller.fit` | `contain` / `cover` / `stretch` / `native` の配置計算 | `config` |
 | `projector_controller.display` | ディスプレイ一覧の取得 | `config`, backend adapter |
@@ -124,7 +124,7 @@ graph TD
 - `FitMode`: `contain`, `cover`, `stretch`, `native` などの表示方法。
 - `MediaSource`: 静止画、動画、生成フレームなどの入力。
 - `RealtimeProjection`: Rust renderer process を制御し、`submit_frame` で frame を投入する Python facade。
-- `VideoPlayer`: Rust renderer と専用 media プロセスを起動・統制する Python facade（案 C）。Python は frame を触らず、media プロセスが PyAV でデコードして renderer に直接 push する。
+- `VideoPlayer`: Rust renderer と専用 media プロセスを起動・統制する Python facade（案 C）。Python は frame を触らず、media プロセスが PyAV で映像をデコードして renderer に push し、音声は sounddevice で再生して**音声 master clock**で A/V 同期する。`mute` / `av_offset_ms` で音声無効化・遅延補正。
 - `Frame`: `RGBA8` / `BGRA8` の連続メモリ、width / height / pixel format / fit mode を持つリアルタイム入力。
 
 ## Rust Realtime Renderer（決定済み: 2026-05-31）

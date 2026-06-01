@@ -4,7 +4,7 @@
 各セッションの最初に読み、最後に更新する。確定した事項は `MEMORY.md` へ昇格する。
 
 - **Last updated:** 2026-06-01
-- **Current focus:** realtime #1（性能, 1080p60）は backpressure/NODELAY 実装済み。#2（動画, 案 C）の**映像のみ MVP**（VideoPlayer + 専用 media プロセス + PyAV）完成。次は #2 の音声 + A/V 同期（D2）
+- **Current focus:** realtime #2（動画, 案 C）は**映像 + 音声 + A/V 同期まで完成**（VideoPlayer + media プロセス + PyAV + sounddevice 音声 master）。次は #1 の end-to-end 実測（1080p60 達成・遅延累積の確認）
 - **Working branch:** feature/realtime-video-mvp（#2 映像 MVP。#1 は feature/realtime-frame-ipc にコミット済み）
 
 ---
@@ -32,7 +32,7 @@
 - `docs/EXPERIMENTS.md` の `projtest-002` として Rust renderer の外部 display / fullscreen / DPI / 座標挙動を実機確認する。あわせて `M0`（pygame と winit の display 番号一致）を複数モニタで確認する。
 - 配布準備 Phase 2: GitHub Actions でクロスプラットフォーム wheel をビルドし PyPI 公開（CI シークレット必要）。ローカルリハーサルの申し送りを反映する: (1) 2 パッケージ両方を公開しないと `[realtime]` が壊れる、(2) 公開順は renderer → 本体、(3) maturin の出力先フラグは `--out`（`--out-dir` 不可）、(4) renderer wheel は OS/アーキ別なので CI でマルチプラットフォームビルドが必須。
 - realtime #1（性能, 1080p60）: backpressure（**設定可能・既定 latest**。renderer に単一 frame inbox を追加し無制限キュー増大を解消）と TCP_NODELAY を実装済み（検証スタック全緑＋latest/all smoke OK）。残: paced producer での **end-to-end 実測**（1080p60 達成・遅延累積の確認）、必要なら受信バッファ再利用。shm は当面見送り。
-- realtime #2（動画/音声, 案 C）: **映像のみ MVP 完成**（`VideoPlayer` + 専用 media プロセス + PyAV。検証全緑＋投影 smoke OK）。残: D2（音声 + A/V 同期 = renderer present 遅延の実測 → 音声 master でオフセット補正）。CI で av-gated テストを走らせるなら video job に `--extra video` を追加。
+- realtime #2（動画/音声, 案 C）: **映像 + 音声 + A/V 同期まで完成**（`VideoPlayer` + media プロセス + PyAV + sounddevice 音声 master。検証全緑＋A/V クリップ同期再生 smoke OK）。残: renderer present 遅延の厳密計測（将来。今は `--av-offset-ms` 手動）、CI で av-gated テストを走らせるなら video job に `--extra video`。
 - 設定ファイル形式を導入するか判断する（#3、トリガ待ちで据え置き）。
 
 ## Blocked
@@ -41,6 +41,7 @@
 
 ## Recently Done
 
+- 2026-06-01 realtime #2 の **D2（音声 + A/V 同期）完成**（`feature/realtime-video-mvp`）。`sounddevice` を `[video]` extra に追加。`AudioMaster` が別スレッドで音声を再生し `clock()`（書込済み秒 − 出力 latency）を提供、`stream_frames_synced` が映像を**音声 master clock** に同期。`--av-offset-ms`（既定 0）で renderer 遅延を手動補正。音声無し/出力デバイス無し/`--mute` は wall-clock 映像のみにフォールバック。PyAV の音声 plane も末尾パディングを持つため `samples*ch*2` に切る。検証スタック全緑（Python 41 passed）＋**サイン波付き A/V クリップ**の同期再生 smoke 成功（returncode 0）。MEMORY に realtime の確定事項を昇格。
 - 2026-06-01 realtime #2（動画, 案 C）の**映像のみ MVP** を実装（`feature/realtime-video-mvp`）。PyAV を `[video]` extra で追加（av 17.0.1）。renderer 起動を `RendererProcess` + `build_renderer_command` に切り出して `RealtimeProjection` と共有（非破壊）。新規 `projector_controller.media`（PyAV デコード→stride 除去→PTS ペース→既存 protocol で renderer に push、終了時 quit）と `VideoPlayer` facade（renderer を `--backpressure all` で起動し media プロセスを統制）を追加・公開 API に。renderer は無改修の純 sink のまま。検証スタック全緑（Python ruff/mypy/pytest 38 passed）、合成クリップの投影 smoke 成功（returncode 0）。残りは D2（音声 + A/V 同期）。
 - 2026-06-01 realtime #1（性能）の中核を実装。renderer に単一 frame inbox（`packages/renderer/src/inbox.rs`）を追加し、`RendererEvent` を frame 同梱から `FrameReady` 通知へ変更、frame 単位で inline present。backpressure を **設定可能（既定 `latest`＝最新優先で破棄 / `all`＝全描画・満杯時ブロックで producer をペース）** にし、**無制限キュー増大を解消**。Python に `RealtimeProjection(backpressure=...)` と `TCP_NODELAY` を追加。README/ARCHITECTURE を更新。検証スタック全緑（Python 28 passed・Rust 4 passed）、latest/all 両モードの windowed smoke 成功。`feature/realtime-frame-ipc` で作業（未コミット）。
 - 2026-06-01 realtime #1 / #2 の方向をユーザーが確定（ユースケース=両方 / 目標=1080p60 / #2 レイヤ=案 C 専用 media プロセス）。#1 は実機で copy-TCP の転送上限 ~1615 MB/s（1080p ~195fps 相当、1080p60 の ~3.2 倍）を計測し、**shm は当面見送り**と判断。`PLANS.md` に「realtime frame IPC の性能（#1）」と「動画デコード/音声 — 専用 media プロセス（#2）」を追加。#1 は backpressure / alloc 削減 / NODELAY、#2 は D1（デコーダ依存）/D2（音声・同期）確定後に MVP（映像のみ）の順。

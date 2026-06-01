@@ -27,6 +27,8 @@
 | 2026-05-31 | renderer crate は `packages/renderer/`(自己完結 maturin bin)に置き cargo workspace を解体 | PyPI 独立パッケージとして sdist/editable/CI が素直になる。crate は 1 つなので workspace を失う不利益なし | packages/renderer/、Cargo.toml(削除) |
 | 2026-05-31 | Phase 1 受け入れ確認成功 | 本体 wheel + renderer wheel を fresh venv に install し、env var/PATH なし・リポジトリ外から sysconfig 経由で renderer 解決 → 実フレーム投影まで完走 | packages/renderer/、src/projector_controller/realtime.py |
 | 2026-05-31 | ローカル PyPI 配布リハーサル成功（実環境に最も近い検証） | 両パッケージの wheel/sdist を `pypiserver` で配信し、fresh venv で `pip install --index-url http://localhost:... "projector-controller[realtime]"` が解決成功(本体・renderer・pygame)、index install 後に sysconfig 経由で renderer 解決→実フレーム投影まで完走(E2E exit 0)。`pip install "projector-controller[realtime]"` 一発で realtime が動くことを実証 | 一時環境のみ(コミットなし)。Phase 2 の PyPI 公開手順の裏付け |
+| 2026-06-01 | realtime frame IPC は copy-based TCP を維持し shared memory は当面見送る。renderer に単一 frame inbox を置き backpressure を設定可能化（既定 `latest`=最新優先で古いを破棄 / `all`=全描画・満杯時 reader ブロックで producer をペース）。Python 側は TCP_NODELAY | 手元実機で copy-TCP 転送上限 ~1615 MB/s（1080p60 必要 ~498 MB/s の ~3.2 倍）。1080p60 では shm 不要。無制限キュー増大（堅牢性バグ）は inbox で解消。4K60(~2GB/s) を本気で狙う段で shm 再評価 | packages/renderer/src/{inbox,main,render}.rs、realtime.py、docs/ARCHITECTURE.md |
+| 2026-06-01 | 動画再生は案 C（専用 media プロセス）。renderer は無改修の純 frame sink のまま、`VideoPlayer` が renderer(`--backpressure all`) + 別 media プロセス(`python -m projector_controller.media`)を統制。media は PyAV でデコード→既存 protocol で push、音声は sounddevice で再生し**音声 master clock**で映像を同期 | renderer を sink に保てば live 生成も動画も同一 protocol。プロセス分離で decode が Python 本体の GIL/スケジューリングに影響しない。音声 master は動画プレイヤーの定石 | media.py、video.py、pyproject `[video]` extra(av/sounddevice)、docs/ARCHITECTURE.md |
 
 ## Conventions
 
@@ -53,6 +55,10 @@
 - ローカル PyPI 配布リハーサルの手順: 両パッケージの wheel/sdist を 1 つの dist ディレクトリに集め、`uv run --no-project --with pypiserver pypi-server run -p <port> <dist>` で配信、fresh venv で `pip install --index-url http://localhost:<port>/simple/ --extra-index-url https://pypi.org/simple/ --trusted-host localhost "projector-controller[realtime]"`。`twine check <dist>/*` でメタデータも確認できる。
 - workspace 解体後は `cargo ... -p <crate>` が使えない。`cargo <cmd> --manifest-path packages/renderer/Cargo.toml` を使う（README/EXPERIMENTS/ARCHITECTURE のコマンド例も更新済み）。
 - maturin の純バイナリパッケージ（Python モジュールを含まない）は `python-source` / `module-name` を設定しない。設定すると「python module が存在しない」エラーになる（mixed project 限定の設定）。
+- PyAV の plane はパディングを持つ。映像 `reformat("rgba")` は行ごとに `line_size > width*4`、音声 `resample("s16")` は plane が `buffer_size > samples*ch*2`。renderer protocol は tightly-packed なので必ず tight 長に切る（映像=`_pack_rgba` で行ごと、音声=`bytes(plane)[:samples*ch*2]`）。
+- `av` / `sounddevice` は `[video]` extra（heavy）。`media.py` で遅延 import し、`import projector_controller` には影響させない。音声ストリーム無し / 出力デバイス無し / `--mute` 時は wall-clock の映像のみにフォールバック（`AudioMaster.start()` が False を返す）。
+- realtime の copy-TCP 転送上限は手元実機で ~1615 MB/s（1080p ~195fps 相当）。1080p60 は余裕、4K60(~2GB/s) を狙うなら shm/ring buffer を再評価する。
+- A/V 同期は音声 master。`AudioMaster` が別スレッドで音声を再生し `clock()`（= 書込済み秒 − 出力 latency）を提供、`stream_frames_synced` が映像を `clock()+offset` で出す。renderer present 遅延は MVP では手動 `--av-offset-ms`（既定 0）で吸収し、厳密計測は未実装。
 
 ## Domain Facts
 
