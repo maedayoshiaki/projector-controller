@@ -45,8 +45,8 @@
 - pygame 2.6.1 (classic) には `pygame.movie` が無い。mp4 などの一般的な動画ファイルを pygame の投影面へ出すには、別のデコーダでフレームを読み、pygame Surface に変換して描画する必要がある。
 - windowed の絶対位置指定は `SDL_VIDEO_WINDOW_POS` 環境変数で行う。位置未指定時は設定せず `set_mode(display=N)` に中央配置を任せる（旧実装は常に (0,0) を渡して固定されるバグがあった）。
 - Windows DPI スケーリング（実機は 200%）で SDL が論理サイズしか見えず、ウィンドウ/全画面サイズが崩れる。`SDL_WINDOWS_DPI_AWARENESS=permonitorv2` を pygame import 前に設定して物理ピクセルで扱う。診断は「`get_desktop_sizes()` の値 ×スケール = 物理解像度（`Get-CimInstance Win32_VideoController`）」で判別できる。
-- Rust renderer は pygame backend と fullscreen 実装が異なる（winit borderless fullscreen）。display 番号、DPI、座標挙動は Rust 側で改めて実機検証する。
-- display 番号は backend で 2 系統（pygame=`--list-displays`、Rust renderer=`--list-monitors`）。realtime の `--display` は必ず `--list-monitors` の番号を使う。両者の番号が一致するかは環境依存で、外部モニタ接続時に projtest-002 で要確認（単一モニタでは一致を確認済み）。
+- Rust renderer は pygame backend と fullscreen 実装が異なる（winit borderless fullscreen）。display 番号 / DPI / 座標挙動は **2026-06-01 に外部モニタで実機検証し全 PASS**（projtest-002）: 中央配置・絶対座標（負 Y 含む）・borderless fullscreen のクリーン被覆（枠/カーソル/タスクバー出ず）・混在 DPI（内蔵 scale2.0 / 外部 scale1.5）でのサイズ崩れなし。外部でも 1080p60 達成（all 112.9 / latest 117.1 fps）。
+- display 番号は backend で 2 系統（pygame=`--list-displays`、Rust renderer=`--list-monitors`）。realtime の `--display` は必ず `--list-monitors` の番号を使う。番号一致は **2026-06-01 に 2 モニタ（内蔵 2880x1800 / 外部 1920x1200）で完全一致を実機確認**（単一モニタも確認済み）。外部は index 1、原点 (511,-1200) の負 Y 配置でも正しく扱えた。
 - renderer subprocess の stdout/stderr を PIPE にしたら必ず drain する。READY 行だけ読んで放置すると OS パイプバッファ満杯で renderer が write ブロックする。
 - `import projector_controller` は軽量に保つ（pygame は `ProjectionWindow` 利用時に遅延ロード）。`tests/test_package.py` が「import で pygame を読まない」「公開 API が出ている」を保証する。壊したら配布物の使い勝手が落ちる。
 - パッケージ検証は fresh venv に `uv build` の wheel を install し、リポジトリ外ディレクトリから import して行う（ソースツリーからの import と混同しない）。この環境のツール出力が破損しやすいので、判定は print ではなく exit code に載せる（[[tool-output-corruption]]）。
