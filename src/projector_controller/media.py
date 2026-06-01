@@ -1,26 +1,39 @@
 """Dedicated media process: decode a video file with PyAV and feed the Rust renderer.
 
 This is case C of the realtime design: the renderer stays a pure frame sink, and a
-separate process owns decoding (and later audio + A/V sync). Run as a subprocess by
+separate process owns decoding and audio + A/V sync. Run as a subprocess by
 ``VideoPlayer``:
 
     python -m projector_controller.media --connect HOST:PORT --file video.mp4
 
-PyAV is an optional dependency (the ``[video]`` extra); it is imported lazily so the rest
-of the package stays importable without it.
+Audio is the master clock: it plays continuously in a background thread (via
+``sounddevice``) and video frames are presented to match the audio position. If the file
+has no audio track, no output device is available, or ``--mute`` is given, playback falls
+back to wall-clock pacing.
+
+PyAV and sounddevice are optional dependencies (the ``[video]`` extra); they are imported
+lazily so the rest of the package stays importable without them.
 """
 
 from __future__ import annotations
 
 import argparse
+import math
 import socket
+import struct
+import threading
 import time
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from projector_controller.config import FitMode, normalize_fit_mode
 from projector_controller.realtime import _encode_frame_header, _encode_quit_header
+
+# Audio is decoded/resampled to interleaved signed 16-bit stereo for output.
+_AUDIO_CHANNELS = 2
+_AUDIO_BYTES_PER_SAMPLE = 2
 
 
 @dataclass(frozen=True)
@@ -33,11 +46,13 @@ class DecodedFrame:
     pts: float
 
 
-def decode_video_frames(path: str | Path) -> Iterator[DecodedFrame]:
+def decode_video_frames(path: str | Path, *, rotate: int | None = None) -> Iterator[DecodedFrame]:
     """Decode a video file to tightly-packed RGBA8 frames using PyAV.
 
     Yields frames in presentation order. ``pts`` is seconds from the stream start; frames
-    without a timestamp fall back to a running counter at the stream's average rate.
+    without a timestamp fall back to a running counter at the stream's average rate. The
+    file's display-matrix rotation (e.g. phone portrait videos stored landscape) is applied
+    automatically; pass ``rotate`` (0/90/180/270, clockwise) to override the detected angle.
     """
 
     import av  # lazy: PyAV is the optional [video] extra
@@ -46,17 +61,101 @@ def decode_video_frames(path: str | Path) -> Iterator[DecodedFrame]:
         stream = container.streams.video[0]
         rate = stream.average_rate
         fallback_step = 1.0 / float(rate) if rate else 1.0 / 30.0
-        for index, frame in enumerate(container.decode(stream)):
-            rgba = frame.reformat(format="rgba")
-            width = int(rgba.width)
-            height = int(rgba.height)
-            plane = rgba.planes[0]
-            data = _pack_rgba(
-                bytes(plane), width=width, height=height, line_size=int(plane.line_size)
-            )
-            frame_time = frame.time
-            pts = float(frame_time) if frame_time is not None else index * fallback_step
-            yield DecodedFrame(data=data, width=width, height=height, pts=pts)
+        graph: Any = None
+        configured = False
+        index = 0
+        for frame in container.decode(stream):
+            if not configured:
+                theta = rotate if rotate is not None else _display_rotation(frame)
+                graph = _transpose_graph(frame, stream.time_base, theta)
+                configured = True
+            for out in _rotate_frame(graph, frame):
+                rgba = out.reformat(format="rgba")
+                width = int(rgba.width)
+                height = int(rgba.height)
+                plane = rgba.planes[0]
+                data = _pack_rgba(
+                    bytes(plane), width=width, height=height, line_size=int(plane.line_size)
+                )
+                frame_time = out.time
+                pts = float(frame_time) if frame_time is not None else index * fallback_step
+                yield DecodedFrame(data=data, width=width, height=height, pts=pts)
+                index += 1
+
+
+def _display_rotation(frame: Any) -> int:
+    """Clockwise display rotation (0/90/180/270) from a frame's display matrix, else 0."""
+
+    from av.sidedata.sidedata import Type
+
+    try:
+        matrix = frame.side_data.get(Type.DISPLAYMATRIX)
+        if matrix is None:
+            return 0
+        return _rotation_from_matrix(bytes(matrix))
+    except Exception:
+        return 0
+
+
+def _rotation_from_matrix(matrix: bytes) -> int:
+    """Decode an ffmpeg 3x3 display matrix (9 int32, 16.16 fixed) to a clockwise angle.
+
+    Mirrors ffmpeg's autorotate: the two sign flips (av_display_rotation_get negates, then
+    get_rotation negates again) cancel, so the clockwise angle is ``atan2`` of the matrix.
+    """
+
+    values = struct.unpack("<9i", matrix)
+    scale_x = math.hypot(values[0] / 65536.0, values[3] / 65536.0)
+    scale_y = math.hypot(values[1] / 65536.0, values[4] / 65536.0)
+    if not scale_x or not scale_y:
+        return 0
+    angle = math.degrees(
+        math.atan2((values[1] / 65536.0) / scale_y, (values[0] / 65536.0) / scale_x)
+    )
+    return int(round((round(angle) % 360) / 90.0) * 90) % 360
+
+
+def _transpose_graph(frame: Any, time_base: Any, theta: int) -> Any:
+    """Build a PyAV transpose filter graph for a clockwise ``theta``, or None for 0."""
+
+    steps = {90: ["clock"], 180: ["clock", "clock"], 270: ["cclock"]}.get(theta)
+    if not steps:
+        return None
+
+    from av.filter import Graph
+
+    graph = Graph()
+    node = graph.add_buffer(
+        width=frame.width,
+        height=frame.height,
+        format=frame.format.name,
+        time_base=time_base,
+    )
+    for step in steps:
+        transpose = graph.add("transpose", step)
+        node.link_to(transpose)
+        node = transpose
+    node.link_to(graph.add("buffersink"))
+    graph.configure()
+    return graph
+
+
+def _rotate_frame(graph: Any, frame: Any) -> list[Any]:
+    """Pass a frame through the transpose graph, or return it unchanged when graph is None."""
+
+    if graph is None:
+        return [frame]
+
+    import av
+
+    graph.push(frame)
+    rotated: list[Any] = []
+    while True:
+        try:
+            rotated.append(graph.pull())
+        except (av.error.BlockingIOError, av.error.EOFError):
+            break
+    return rotated
 
 
 def _pack_rgba(raw: bytes, *, width: int, height: int, line_size: int) -> bytes:
@@ -71,6 +170,112 @@ def _pack_rgba(raw: bytes, *, width: int, height: int, line_size: int) -> bytes:
     return b"".join(raw[y * line_size : y * line_size + tight] for y in range(height))
 
 
+def _has_audio_stream(path: str | Path) -> bool:
+    import av
+
+    try:
+        with av.open(str(path)) as container:
+            return len(container.streams.audio) > 0
+    except Exception:
+        return False
+
+
+class AudioMaster:
+    """Play a file's audio in a background thread and expose a playback clock (seconds).
+
+    Audio is the A/V sync master: video frames are presented to match ``clock()``. When the
+    file has no audio stream or no output device is available, ``start()`` returns ``False``
+    and the caller should fall back to wall-clock pacing.
+    """
+
+    def __init__(self, path: str | Path) -> None:
+        self._path = str(path)
+        self._lock = threading.Lock()
+        # Audio plays at real time, so the playback position is wall time since the first
+        # sample was written. Anchoring to wall time gives a smooth clock; tracking
+        # bytes-written instead advanced in coarse, bursty steps and made video stutter.
+        self._start_wall: float | None = None
+        self._finished = False
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def clock(self) -> float:
+        with self._lock:
+            if self._start_wall is None:
+                return 0.0
+            return time.perf_counter() - self._start_wall
+
+    def started(self) -> bool:
+        with self._lock:
+            return self._start_wall is not None
+
+    def is_done(self) -> bool:
+        with self._lock:
+            return self._finished
+
+    def start(self) -> bool:
+        if not _has_audio_stream(self._path):
+            return False
+        try:
+            import sounddevice
+
+            sounddevice.query_devices(kind="output")
+        except Exception:
+            return False
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+        return True
+
+    def stop(self) -> None:
+        self._stop.set()
+        thread = self._thread
+        if thread is not None:
+            thread.join(timeout=2)
+
+    def _run(self) -> None:
+        import av
+        import sounddevice as sd
+
+        try:
+            with av.open(self._path) as container:
+                stream = container.streams.audio[0]
+                rate = int(stream.rate)
+                resampler = av.AudioResampler(format="s16", layout="stereo", rate=rate)
+                with sd.RawOutputStream(
+                    samplerate=rate, channels=_AUDIO_CHANNELS, dtype="int16"
+                ) as out:
+                    for frame in container.decode(stream):
+                        if self._stop.is_set():
+                            break
+                        for resampled in resampler.resample(frame):
+                            samples = int(resampled.samples)
+                            tight = samples * _AUDIO_CHANNELS * _AUDIO_BYTES_PER_SAMPLE
+                            with self._lock:
+                                if self._start_wall is None:
+                                    self._start_wall = time.perf_counter()
+                            out.write(bytes(resampled.planes[0])[:tight])
+        except Exception:
+            # No usable audio path; the video side falls back to its own pacing.
+            pass
+        finally:
+            with self._lock:
+                self._finished = True
+
+
+def _run_stream(
+    sock: socket.socket,
+    frames: Iterable[DecodedFrame],
+    fit_mode: FitMode | None,
+    wait: Callable[[DecodedFrame], None],
+) -> int:
+    sent = 0
+    for frame in frames:
+        wait(frame)
+        _send_frame(sock, frame, fit_mode)
+        sent += 1
+    return sent
+
+
 def stream_frames(
     sock: socket.socket,
     frames: Iterable[DecodedFrame],
@@ -78,25 +283,81 @@ def stream_frames(
     fit_mode: FitMode | None = None,
     pace: bool = True,
 ) -> int:
-    """Push decoded frames to a connected renderer, optionally paced by PTS.
+    """Push frames to the renderer, paced by PTS against a wall clock (no audio)."""
 
-    Returns the number of frames sent. With ``pace=True`` (the default) each frame is held
-    until its presentation time relative to the first frame, so playback runs at real time.
+    if not pace:
+        return _run_stream(sock, frames, fit_mode, lambda _frame: None)
+
+    anchor: float | None = None
+
+    def wait(frame: DecodedFrame) -> None:
+        nonlocal anchor
+        now = time.perf_counter()
+        if anchor is None:
+            anchor = now - frame.pts
+        delay = (anchor + frame.pts) - now
+        if delay > 0:
+            time.sleep(delay)
+
+    return _run_stream(sock, frames, fit_mode, wait)
+
+
+def stream_frames_synced(
+    sock: socket.socket,
+    frames: Iterable[DecodedFrame],
+    clock: Callable[[], float],
+    is_done: Callable[[], bool],
+    *,
+    fit_mode: FitMode | None = None,
+    offset: float = 0.0,
+) -> int:
+    """Push frames paced to a master ``clock`` (seconds), e.g. the audio playback position.
+
+    ``offset`` presents each frame ``offset`` seconds early to compensate for renderer
+    latency. If ``is_done()`` becomes true (audio ended) any remaining frames are sent at
+    once instead of waiting forever.
     """
 
-    start: float | None = None
-    sent = 0
-    for frame in frames:
-        if pace:
-            now = time.perf_counter()
-            if start is None:
-                start = now - frame.pts
-            delay = (start + frame.pts) - now
-            if delay > 0:
-                time.sleep(delay)
-        _send_frame(sock, frame, fit_mode)
-        sent += 1
-    return sent
+    def wait(frame: DecodedFrame) -> None:
+        target = frame.pts - offset
+        while True:
+            remaining = target - clock()
+            if remaining <= 0 or is_done():
+                return
+            time.sleep(min(0.005, remaining))
+
+    return _run_stream(sock, frames, fit_mode, wait)
+
+
+def play(
+    sock: socket.socket,
+    path: str | Path,
+    *,
+    fit_mode: FitMode | None = None,
+    mute: bool = False,
+    av_offset: float = 0.0,
+    rotate: int | None = None,
+) -> None:
+    """Decode ``path`` and stream it to the renderer, syncing video to audio when possible."""
+
+    audio = None if mute else AudioMaster(path)
+    use_audio = audio.start() if audio is not None else False
+    try:
+        frames = decode_video_frames(path, rotate=rotate)
+        if use_audio and audio is not None:
+            # Wait for audio to actually start before pacing video to it, otherwise the
+            # first frames are held while the output device opens (a startup freeze).
+            deadline = time.perf_counter() + 2.0
+            while not audio.started() and not audio.is_done() and time.perf_counter() < deadline:
+                time.sleep(0.005)
+            stream_frames_synced(
+                sock, frames, audio.clock, audio.is_done, fit_mode=fit_mode, offset=av_offset
+            )
+        else:
+            stream_frames(sock, frames, fit_mode=fit_mode)
+    finally:
+        if audio is not None:
+            audio.stop()
 
 
 def _send_frame(sock: socket.socket, frame: DecodedFrame, fit_mode: FitMode | None) -> None:
@@ -129,6 +390,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=None,
         help="override the renderer's fit mode for this stream",
     )
+    parser.add_argument("--mute", action="store_true", help="do not play the audio track")
+    parser.add_argument(
+        "--av-offset-ms",
+        type=float,
+        default=0.0,
+        help="present video this many ms early to compensate for renderer latency",
+    )
+    parser.add_argument(
+        "--rotate",
+        type=int,
+        choices=(0, 90, 180, 270),
+        default=None,
+        help="rotate video clockwise (default: auto-detect from the file's display matrix)",
+    )
     parser.add_argument("--connect-timeout", type=float, default=5.0)
     args = parser.parse_args(argv)
 
@@ -139,7 +414,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     sock.settimeout(None)
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     try:
-        stream_frames(sock, decode_video_frames(args.file), fit_mode=fit_mode)
+        play(
+            sock,
+            args.file,
+            fit_mode=fit_mode,
+            mute=args.mute,
+            av_offset=args.av_offset_ms / 1000.0,
+            rotate=args.rotate,
+        )
         # Tell the renderer the stream is finished so it can shut down cleanly.
         sock.sendall(_encode_quit_header())
     finally:

@@ -66,10 +66,80 @@ def test_stream_frames_pushes_protocol_header_and_payload() -> None:
     assert len(received) == 24 + 28
 
 
+def test_stream_frames_synced_presents_when_clock_reaches_pts() -> None:
+    sender, receiver = socket.socketpair()
+    try:
+        frames = [
+            media.DecodedFrame(data=b"\x00\x00\x00\x00", width=1, height=1, pts=0.0),
+            media.DecodedFrame(data=b"\x00\x00\x00\x00", width=1, height=1, pts=5.0),
+        ]
+        # Master clock already far ahead of every PTS -> no real waiting.
+        sent = media.stream_frames_synced(
+            sender, frames, clock=lambda: 1_000.0, is_done=lambda: False
+        )
+        assert sent == 2
+        sender.shutdown(socket.SHUT_WR)
+        received = _recv_until_eof(receiver)
+    finally:
+        sender.close()
+        receiver.close()
+    assert len(received) == 2 * (20 + 4)
+
+
+def test_stream_frames_synced_sends_remaining_when_audio_done() -> None:
+    sender, receiver = socket.socketpair()
+    try:
+        # PTS far in the future and clock stuck at 0: only is_done() avoids hanging.
+        frames = [media.DecodedFrame(data=b"\x00\x00\x00\x00", width=1, height=1, pts=1e9)]
+        sent = media.stream_frames_synced(sender, frames, clock=lambda: 0.0, is_done=lambda: True)
+        assert sent == 1
+    finally:
+        sender.close()
+        receiver.close()
+
+
+def test_rotation_from_matrix_detects_portrait_90() -> None:
+    # iPhone portrait: stored landscape with a 90-degree-clockwise display matrix.
+    raw = struct.pack("<9i", 0, 65536, 0, -65536, 0, 0, 0, 0, 1073741824)
+    assert media._rotation_from_matrix(raw) == 90
+
+
+def test_rotation_from_matrix_identity_is_zero() -> None:
+    raw = struct.pack("<9i", 65536, 0, 0, 0, 65536, 0, 0, 0, 1073741824)
+    assert media._rotation_from_matrix(raw) == 0
+
+
+def test_rotation_from_matrix_handles_270_and_180() -> None:
+    cclock = struct.pack("<9i", 0, -65536, 0, 65536, 0, 0, 0, 0, 1073741824)
+    flip = struct.pack("<9i", -65536, 0, 0, 0, -65536, 0, 0, 0, 1073741824)
+    assert media._rotation_from_matrix(cclock) == 270
+    assert media._rotation_from_matrix(flip) == 180
+
+
 def test_video_player_play_requires_open() -> None:
     player = VideoPlayer(renderer_path=Path("renderer-bin"))
     with pytest.raises(RuntimeError, match="not open"):
         player.play("clip.mp4")
+
+
+def test_audio_master_start_false_without_audio_stream(tmp_path: Path) -> None:
+    av = pytest.importorskip("av")
+
+    path = tmp_path / "silent.mp4"
+    with av.open(str(path), mode="w") as container:
+        stream = container.add_stream("mpeg4", rate=10)
+        stream.width, stream.height, stream.pix_fmt = 32, 32, "yuv420p"
+        for _ in range(3):
+            frame = av.VideoFrame(32, 32, "rgb24").reformat(format="yuv420p")
+            for packet in stream.encode(frame):
+                container.mux(packet)
+        for packet in stream.encode():
+            container.mux(packet)
+
+    master = media.AudioMaster(path)
+    # No audio stream -> caller falls back to wall-clock pacing.
+    assert master.start() is False
+    assert master.is_done() is False
 
 
 def test_decode_video_frames_roundtrip(tmp_path: Path) -> None:

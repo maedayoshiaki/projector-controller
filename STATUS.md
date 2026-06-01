@@ -4,7 +4,7 @@
 各セッションの最初に読み、最後に更新する。確定した事項は `MEMORY.md` へ昇格する。
 
 - **Last updated:** 2026-06-01
-- **Current focus:** realtime #1（性能, 1080p60）は backpressure/NODELAY 実装済み。#2（動画, 案 C）の**映像のみ MVP**（VideoPlayer + 専用 media プロセス + PyAV）完成。次は #2 の音声 + A/V 同期（D2）
+- **Current focus:** realtime #1（性能, 1080p60 達成）と #2（動画 + 音声 + A/V 同期）はいずれも**完了**。PR #3（#1→main）と PR #2（#2→#1 にスタック）が main マージ待ち。次の大物は無し（残は projtest-002 実機・#3 設定ファイル・将来 4K60）
 - **Working branch:** feature/realtime-video-mvp（#2 映像 MVP。#1 は feature/realtime-frame-ipc にコミット済み）
 
 ---
@@ -31,16 +31,21 @@
 
 - `docs/EXPERIMENTS.md` の `projtest-002` として Rust renderer の外部 display / fullscreen / DPI / 座標挙動を実機確認する。あわせて `M0`（pygame と winit の display 番号一致）を複数モニタで確認する。
 - 配布準備 Phase 2: GitHub Actions でクロスプラットフォーム wheel をビルドし PyPI 公開（CI シークレット必要）。ローカルリハーサルの申し送りを反映する: (1) 2 パッケージ両方を公開しないと `[realtime]` が壊れる、(2) 公開順は renderer → 本体、(3) maturin の出力先フラグは `--out`（`--out-dir` 不可）、(4) renderer wheel は OS/アーキ別なので CI でマルチプラットフォームビルドが必須。
-- realtime #1（性能, 1080p60）: backpressure（**設定可能・既定 latest**。renderer に単一 frame inbox を追加し無制限キュー増大を解消）と TCP_NODELAY を実装済み（検証スタック全緑＋latest/all smoke OK）。残: paced producer での **end-to-end 実測**（1080p60 達成・遅延累積の確認）、必要なら受信バッファ再利用。shm は当面見送り。
-- realtime #2（動画/音声, 案 C）: **映像のみ MVP 完成**（`VideoPlayer` + 専用 media プロセス + PyAV。検証全緑＋投影 smoke OK）。残: D2（音声 + A/V 同期 = renderer present 遅延の実測 → 音声 master でオフセット補正）。CI で av-gated テストを走らせるなら video job に `--extra video` を追加。
+- realtime #1（性能, 1080p60）: **完了**。end-to-end 実測で 1080p `all` 113.9 fps / `latest` 130.9 fps＝**1080p60 を ~1.9× 達成**。shm・受信バッファ再利用とも**不要を確定**。4K60(~2GB/s) を狙う段でのみ shm/present 方式を再評価。
+- realtime #2（動画/音声, 案 C）: **映像 + 音声 + A/V 同期まで完成**（`VideoPlayer` + media プロセス + PyAV + sounddevice 音声 master。検証全緑＋A/V クリップ同期再生 smoke OK）。残: renderer present 遅延の厳密計測（将来。今は `--av-offset-ms` 手動）、CI で av-gated テストを走らせるなら video job に `--extra video`。
 - 設定ファイル形式を導入するか判断する（#3、トリガ待ちで据え置き）。
 
 ## Blocked
 
-- Rust renderer の外部 display / fullscreen 実機確認 — **理由:** local windowed smoke test は成功。winit borderless fullscreen は pygame fullscreen と方式が異なるため、プロジェクタまたは外部モニタで再検証が必要。
+- （現在ブロッキングなし）。2026-06-01 に外部モニタで Rust renderer の display 番号 / fullscreen / DPI / 座標を検証し全 PASS（`projtest-002`）。残るプロジェクタ実機での再確認は任意。
 
 ## Recently Done
 
+- 2026-06-01 **実写動画（iPhone 縦撮り HEVC/Dolby Vision .MOV）で #2 を最終確認 → 完璧（向き・画質・音 OK）**。過程で**回転バグを発見・恒久修正**: スマホ縦動画は landscape 保存＋回転メタなので、無視して横倒しに出ていた。PyAV 17 は回転角を出さないため frame の `DISPLAYMATRIX`（9×int32, 16.16 固定）を自前で解いて 0/90/180/270 を判定し、av `transpose` フィルタで自動回転（`decode_video_frames`/`VideoPlayer.play` に `rotate` 手動上書きも追加）。テスト `_rotation_from_matrix`（90/180/270/0）追加。検証 44 passed。HEVC 1080p ソフトデコードは ~84fps で 30fps 再生に十分。
+- 2026-06-01 **動画フルスクリーン再生（#2）の実機デバッグ**。外部 fullscreen で (1) カクつき/同期ずれ → 計測で音声 master clock のチャンク状進行が原因と特定し **wall-time 基準に修正**（interval 33.3ms 固定・stutter 0、commit `f015b4a`）。(2) ノイズ → **テスト内容（剰余ラップ＋動き）由来**と切り分け、素直な静止グラデ高画質版は「綺麗・ノイズなし」で renderer/パイプラインは正常と確認。残: 実写動画での最終確認、起動 ~0.8s の音声デバイス open 待ち短縮（任意）。
+- 2026-06-01 **`projtest-002` を外部モニタで実施し全 PASS**。M0（複数モニタで pygame `--list-displays` と winit `--list-monitors` の番号・物理解像度が完全一致。外部=index 1, 1920x1200, scale 1.5, 原点 (511,-1200)）、R1 中央 / R2 絶対座標（負 Y 含む）/ R3 borderless fullscreen クリーン被覆 / R4 fit 切替（概ね良好）。混在 DPI（内蔵 2.0 / 外部 1.5）でも崩れなし。外部での 1080p スループットは all 112.9 / latest 117.1 fps（1080p60 達成）。#2 の動画フルスクリーン再生（映像 + 音声）も完走（returncode 0）。→ Rust renderer の実機検証が完了し STATUS の Blocked を解消。fit mode の説明を README に追記。
+- 2026-06-01 realtime #1（性能）の **end-to-end 実測で 1080p60 達成を確認**（手元実機, 1080p 300 frames）: `all`=113.9 fps / 945 MB/s、`latest`=130.9 fps / 1085 MB/s。1080p60 を ~1.9× 上回り、遅延 bounded・OOM/hang なし。**shm も受信バッファ再利用も不要を確定**（per-frame alloc のまま 114fps）。#1 を `Done` に。
+- 2026-06-01 realtime #2 の **D2（音声 + A/V 同期）完成**（`feature/realtime-video-mvp`）。`sounddevice` を `[video]` extra に追加。`AudioMaster` が別スレッドで音声を再生し `clock()`（書込済み秒 − 出力 latency）を提供、`stream_frames_synced` が映像を**音声 master clock** に同期。`--av-offset-ms`（既定 0）で renderer 遅延を手動補正。音声無し/出力デバイス無し/`--mute` は wall-clock 映像のみにフォールバック。PyAV の音声 plane も末尾パディングを持つため `samples*ch*2` に切る。検証スタック全緑（Python 41 passed）＋**サイン波付き A/V クリップ**の同期再生 smoke 成功（returncode 0）。MEMORY に realtime の確定事項を昇格。
 - 2026-06-01 realtime #2（動画, 案 C）の**映像のみ MVP** を実装（`feature/realtime-video-mvp`）。PyAV を `[video]` extra で追加（av 17.0.1）。renderer 起動を `RendererProcess` + `build_renderer_command` に切り出して `RealtimeProjection` と共有（非破壊）。新規 `projector_controller.media`（PyAV デコード→stride 除去→PTS ペース→既存 protocol で renderer に push、終了時 quit）と `VideoPlayer` facade（renderer を `--backpressure all` で起動し media プロセスを統制）を追加・公開 API に。renderer は無改修の純 sink のまま。検証スタック全緑（Python ruff/mypy/pytest 38 passed）、合成クリップの投影 smoke 成功（returncode 0）。残りは D2（音声 + A/V 同期）。
 - 2026-06-01 realtime #1（性能）の中核を実装。renderer に単一 frame inbox（`packages/renderer/src/inbox.rs`）を追加し、`RendererEvent` を frame 同梱から `FrameReady` 通知へ変更、frame 単位で inline present。backpressure を **設定可能（既定 `latest`＝最新優先で破棄 / `all`＝全描画・満杯時ブロックで producer をペース）** にし、**無制限キュー増大を解消**。Python に `RealtimeProjection(backpressure=...)` と `TCP_NODELAY` を追加。README/ARCHITECTURE を更新。検証スタック全緑（Python 28 passed・Rust 4 passed）、latest/all 両モードの windowed smoke 成功。`feature/realtime-frame-ipc` で作業（未コミット）。
 - 2026-06-01 realtime #1 / #2 の方向をユーザーが確定（ユースケース=両方 / 目標=1080p60 / #2 レイヤ=案 C 専用 media プロセス）。#1 は実機で copy-TCP の転送上限 ~1615 MB/s（1080p ~195fps 相当、1080p60 の ~3.2 倍）を計測し、**shm は当面見送り**と判断。`PLANS.md` に「realtime frame IPC の性能（#1）」と「動画デコード/音声 — 専用 media プロセス（#2）」を追加。#1 は backpressure / alloc 削減 / NODELAY、#2 は D1（デコーダ依存）/D2（音声・同期）確定後に MVP（映像のみ）の順。
@@ -65,7 +70,7 @@
 ## Open Questions for the Human
 
 - [x] 目標解像度 / FPS = **1080p / 60fps**（2026-06-01 確定）。許容遅延は未定（end-to-end 実測時に詰める）。
-- [x] shm / ring buffer の導入時期 → **当面見送り**。2026-06-01 実機計測で copy-TCP は ~1615 MB/s（1080p60 必要帯域の ~3.2 倍）。1080p60 では shm 不要。4K60 を本気で狙う段で再評価。
+- [x] shm / ring buffer の導入時期 → **不要を確定（1080p60 では）**。transport ~1615 MB/s に加え end-to-end でも 1080p all 113.9fps / latest 130.9fps を実測（~1.9× 達成）。受信バッファ再利用も不要。4K60 を本気で狙う段でのみ再評価。
 - [x] #2 media プロセス（案 C）のデコーダ依存 = **Python + PyAV**（2026-06-01 確定）。PyAV は新規 optional extra `[video]` に置く。
 - [ ] #2 の音声出力と A/V 同期方式（media プロセスが音声 master / 外部 player 委譲 など）。
 - [ ] 設定ファイル形式を導入するか。導入する場合は TOML / YAML / JSON のどれにするか（#3、トリガ待ち）。

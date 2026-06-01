@@ -27,6 +27,8 @@
 | 2026-05-31 | renderer crate は `packages/renderer/`(自己完結 maturin bin)に置き cargo workspace を解体 | PyPI 独立パッケージとして sdist/editable/CI が素直になる。crate は 1 つなので workspace を失う不利益なし | packages/renderer/、Cargo.toml(削除) |
 | 2026-05-31 | Phase 1 受け入れ確認成功 | 本体 wheel + renderer wheel を fresh venv に install し、env var/PATH なし・リポジトリ外から sysconfig 経由で renderer 解決 → 実フレーム投影まで完走 | packages/renderer/、src/projector_controller/realtime.py |
 | 2026-05-31 | ローカル PyPI 配布リハーサル成功（実環境に最も近い検証） | 両パッケージの wheel/sdist を `pypiserver` で配信し、fresh venv で `pip install --index-url http://localhost:... "projector-controller[realtime]"` が解決成功(本体・renderer・pygame)、index install 後に sysconfig 経由で renderer 解決→実フレーム投影まで完走(E2E exit 0)。`pip install "projector-controller[realtime]"` 一発で realtime が動くことを実証 | 一時環境のみ(コミットなし)。Phase 2 の PyPI 公開手順の裏付け |
+| 2026-06-01 | realtime frame IPC は copy-based TCP を維持し shared memory は当面見送る。renderer に単一 frame inbox を置き backpressure を設定可能化（既定 `latest`=最新優先で古いを破棄 / `all`=全描画・満杯時 reader ブロックで producer をペース）。Python 側は TCP_NODELAY | 手元実機で copy-TCP 転送上限 ~1615 MB/s（1080p60 必要 ~498 MB/s の ~3.2 倍）。1080p60 では shm 不要。無制限キュー増大（堅牢性バグ）は inbox で解消。4K60(~2GB/s) を本気で狙う段で shm 再評価 | packages/renderer/src/{inbox,main,render}.rs、realtime.py、docs/ARCHITECTURE.md |
+| 2026-06-01 | 動画再生は案 C（専用 media プロセス）。renderer は無改修の純 frame sink のまま、`VideoPlayer` が renderer(`--backpressure all`) + 別 media プロセス(`python -m projector_controller.media`)を統制。media は PyAV でデコード→既存 protocol で push、音声は sounddevice で再生し**音声 master clock**で映像を同期 | renderer を sink に保てば live 生成も動画も同一 protocol。プロセス分離で decode が Python 本体の GIL/スケジューリングに影響しない。音声 master は動画プレイヤーの定石 | media.py、video.py、pyproject `[video]` extra(av/sounddevice)、docs/ARCHITECTURE.md |
 
 ## Conventions
 
@@ -43,8 +45,8 @@
 - pygame 2.6.1 (classic) には `pygame.movie` が無い。mp4 などの一般的な動画ファイルを pygame の投影面へ出すには、別のデコーダでフレームを読み、pygame Surface に変換して描画する必要がある。
 - windowed の絶対位置指定は `SDL_VIDEO_WINDOW_POS` 環境変数で行う。位置未指定時は設定せず `set_mode(display=N)` に中央配置を任せる（旧実装は常に (0,0) を渡して固定されるバグがあった）。
 - Windows DPI スケーリング（実機は 200%）で SDL が論理サイズしか見えず、ウィンドウ/全画面サイズが崩れる。`SDL_WINDOWS_DPI_AWARENESS=permonitorv2` を pygame import 前に設定して物理ピクセルで扱う。診断は「`get_desktop_sizes()` の値 ×スケール = 物理解像度（`Get-CimInstance Win32_VideoController`）」で判別できる。
-- Rust renderer は pygame backend と fullscreen 実装が異なる（winit borderless fullscreen）。display 番号、DPI、座標挙動は Rust 側で改めて実機検証する。
-- display 番号は backend で 2 系統（pygame=`--list-displays`、Rust renderer=`--list-monitors`）。realtime の `--display` は必ず `--list-monitors` の番号を使う。両者の番号が一致するかは環境依存で、外部モニタ接続時に projtest-002 で要確認（単一モニタでは一致を確認済み）。
+- Rust renderer は pygame backend と fullscreen 実装が異なる（winit borderless fullscreen）。display 番号 / DPI / 座標挙動は **2026-06-01 に外部モニタで実機検証し全 PASS**（projtest-002）: 中央配置・絶対座標（負 Y 含む）・borderless fullscreen のクリーン被覆（枠/カーソル/タスクバー出ず）・混在 DPI（内蔵 scale2.0 / 外部 scale1.5）でのサイズ崩れなし。外部でも 1080p60 達成（all 112.9 / latest 117.1 fps）。
+- display 番号は backend で 2 系統（pygame=`--list-displays`、Rust renderer=`--list-monitors`）。realtime の `--display` は必ず `--list-monitors` の番号を使う。番号一致は **2026-06-01 に 2 モニタ（内蔵 2880x1800 / 外部 1920x1200）で完全一致を実機確認**（単一モニタも確認済み）。外部は index 1、原点 (511,-1200) の負 Y 配置でも正しく扱えた。
 - renderer subprocess の stdout/stderr を PIPE にしたら必ず drain する。READY 行だけ読んで放置すると OS パイプバッファ満杯で renderer が write ブロックする。
 - `import projector_controller` は軽量に保つ（pygame は `ProjectionWindow` 利用時に遅延ロード）。`tests/test_package.py` が「import で pygame を読まない」「公開 API が出ている」を保証する。壊したら配布物の使い勝手が落ちる。
 - パッケージ検証は fresh venv に `uv build` の wheel を install し、リポジトリ外ディレクトリから import して行う（ソースツリーからの import と混同しない）。この環境のツール出力が破損しやすいので、判定は print ではなく exit code に載せる（[[tool-output-corruption]]）。
@@ -53,6 +55,13 @@
 - ローカル PyPI 配布リハーサルの手順: 両パッケージの wheel/sdist を 1 つの dist ディレクトリに集め、`uv run --no-project --with pypiserver pypi-server run -p <port> <dist>` で配信、fresh venv で `pip install --index-url http://localhost:<port>/simple/ --extra-index-url https://pypi.org/simple/ --trusted-host localhost "projector-controller[realtime]"`。`twine check <dist>/*` でメタデータも確認できる。
 - workspace 解体後は `cargo ... -p <crate>` が使えない。`cargo <cmd> --manifest-path packages/renderer/Cargo.toml` を使う（README/EXPERIMENTS/ARCHITECTURE のコマンド例も更新済み）。
 - maturin の純バイナリパッケージ（Python モジュールを含まない）は `python-source` / `module-name` を設定しない。設定すると「python module が存在しない」エラーになる（mixed project 限定の設定）。
+- PyAV の plane はパディングを持つ。映像 `reformat("rgba")` は行ごとに `line_size > width*4`、音声 `resample("s16")` は plane が `buffer_size > samples*ch*2`。renderer protocol は tightly-packed なので必ず tight 長に切る（映像=`_pack_rgba` で行ごと、音声=`bytes(plane)[:samples*ch*2]`）。
+- `av` / `sounddevice` は `[video]` extra（heavy）。`media.py` で遅延 import し、`import projector_controller` には影響させない。音声ストリーム無し / 出力デバイス無し / `--mute` 時は wall-clock の映像のみにフォールバック（`AudioMaster.start()` が False を返す）。
+- realtime の copy-TCP 転送上限は手元実機で ~1615 MB/s（1080p ~195fps 相当）。end-to-end でも 1080p で `all`=113.9fps / `latest`=130.9fps を確認し、**1080p60 を ~1.9× 達成**（shm も受信バッファ再利用も不要、per-frame alloc のまま）。4K60(~2GB/s) を狙うなら shm/ring buffer と present 方式(vsync 解除)を再評価する。
+- A/V 同期は音声 master。`AudioMaster` が別スレッドで音声を再生し、`clock()` ＝**音声開始からの wall-time**を返す（音声は実時間で鳴るので滑らか）。`stream_frames_synced` が映像を `clock()+offset` で出し、`play()` は映像ループ前に `started()` を待って起動カクつきを防ぐ。**注意:** 当初は clock を「書込済み秒 − 出力 latency」にしていたが、sounddevice の blocking write が**チャンク状・バースト**で進むため映像がカクついた（実測 interval max 503ms・>50ms が 22/120 フレーム）。wall-time 基準に変えて interval 33.3ms 固定・stutter 0 に改善。renderer present 遅延は手動 `--av-offset-ms`（既定 0）で吸収、厳密計測は未実装。
+- 動画のテストクリップを自前生成するときは**符号化品質に注意**。低ビットレート mpeg4 ＋ 動くグラデ（圧縮に不利）＋ 低解像度をフルスクリーン拡大すると、renderer は無実でもブロックノイズが目立つ。品質確認は高ビットレート/高解像度クリップか実動画で行う（直接フレーム経路 R1〜R4 はコーデック非経由で綺麗）。スマホ動画は **Dolby Vision HEVC（DOVI side data 有り）** のこともある。
+- **動画の回転メタ（display matrix）を必ず適用する**。スマホ縦撮りは landscape 保存＋回転フラグなので、無視すると横倒しに出る（実写 .MOV で露見した実バグ）。PyAV 17 は `stream.metadata['rotate']` も `stream.side_data` も出さず、`SideData.rotation` も None。**frame.side_data[Type.DISPLAYMATRIX] の 36byte（9×int32, 16.16 固定小数）を自前で解く**。時計回り角 = `atan2(m[1], m[0])`（ffmpeg の av_display_rotation_get が atan2 を負にし get_rotation が再度負にするので二重否定で相殺）。`media._rotation_from_matrix` で 0/90/180/270 に丸め、av の `transpose`（clock/cclock）フィルタで適用。`decode_video_frames(rotate=)` / `VideoPlayer.play(rotate=)` で手動上書き可。実写 iPhone 縦動画（90°）で自動回転＝正しい向き・画質・音 OK を実機確認。
+- realtime media プロセスの実機検証は**ファイル先頭を時間 cap**（`itertools.takewhile(lambda f: f.pts < CAP, decode_video_frames(...))`）して行うと、長尺動画でも短時間で確認できる。HEVC 1080p のソフトデコードは手元実機で ~84fps（30fps 再生に十分）。
 
 ## Domain Facts
 

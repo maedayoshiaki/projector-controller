@@ -76,11 +76,23 @@ class VideoPlayer:
             raise
         return self
 
-    def play(self, path: str | Path, *, fit_mode: FitMode | None = None) -> int:
+    def play(
+        self,
+        path: str | Path,
+        *,
+        fit_mode: FitMode | None = None,
+        mute: bool = False,
+        av_offset_ms: float = 0.0,
+        rotate: int | None = None,
+    ) -> int:
         """Decode ``path`` in a separate media process feeding the renderer; wait for it.
 
-        Returns the media process exit code. The media process sends the renderer a quit
-        message when the file ends, so the projection window closes on completion.
+        Audio plays in the media process and drives A/V sync; pass ``mute=True`` for video
+        only, or ``av_offset_ms`` to present video earlier (compensating renderer latency).
+        Portrait/rotated videos are auto-rotated from the file's display matrix; pass
+        ``rotate`` (0/90/180/270, clockwise) to override. Returns the media process exit
+        code. The media process sends the renderer a quit message when the file ends, so
+        the projection window closes on completion.
         """
 
         renderer = self._renderer
@@ -99,6 +111,12 @@ class VideoPlayer:
         ]
         if fit_mode is not None:
             command.extend(["--fit-mode", normalize_fit_mode(fit_mode)])
+        if mute:
+            command.append("--mute")
+        if av_offset_ms:
+            command.extend(["--av-offset-ms", str(av_offset_ms)])
+        if rotate is not None:
+            command.extend(["--rotate", str(rotate)])
         return subprocess.run(command, check=False).returncode
 
     def close(self) -> None:

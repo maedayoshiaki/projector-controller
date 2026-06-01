@@ -31,9 +31,11 @@ realtime = [
   "projector-controller-renderer==0.1.0",
 ]
 # Video file playback via the dedicated media process (decodes with PyAV and feeds the
-# Rust renderer). Heavy (bundles ffmpeg), so it is opt-in and separate from `realtime`.
+# Rust renderer; sounddevice plays the audio track). Heavy (bundles ffmpeg), so it is
+# opt-in and separate from `realtime`.
 video = [
   "av>=12",
+  "sounddevice>=0.4",
 ]
 
 [project.urls]
@@ -80,6 +82,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["av", "av.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["sounddevice"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
