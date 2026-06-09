@@ -5,6 +5,42 @@
 
 ---
 
+## Plan: pygame `show_frame`（生ピクセル byte 列表示）
+
+- **Status:** `Done`
+- **Owner:** AI
+- **Created / Updated:** 2026-06-09 / 2026-06-09
+- **Related:** src/projector_controller/{config,window,adapters/base,adapters/pygame_backend}.py, tests/test_show_frame.py, examples/show_frame.py, README.md, docs/ARCHITECTURE.md
+
+### Goal & Non-Goals
+- **Goal:** pygame backend に「生ピクセル byte 列を渡して画面を更新する」公開 API を追加する。`ProjectionWindow.show_frame(data, size, *, pixel_format, fit_mode)` を入口にする。
+- **Non-Goals:** CLI 対応（生バイトファイルの入力仕様は別途）、realtime(Rust) 経路の変更、行間パディング（stride）対応、動画/連番ループの抽象化。
+
+### Approach（人間が選んだ案）
+- **API の形:** `ProjectionWindow` にメソッド追加（base protocol + pygame backend に実装）。既存 `show_image`/`show_test_pattern` と一貫した入口にするため。
+- **ピクセルフォーマット:** RGB と RGBA 両対応・既定 RGB。realtime 経路（RGBA）との整合を取りつつ、最小の RGB を既定に。
+- **スコープ:** 今回はライブラリ API のみ（CLI は見送り）。
+- いずれも 2026-06-09 に人間承認済み（AskUserQuestion）。
+
+### Milestones / Steps
+- [x] `config` に `PixelFormat` / `PIXEL_FORMAT_BYTES` / `normalize_pixel_format` を追加
+- [x] `adapters/base` protocol に `show_frame` を追加
+- [x] pygame backend に `show_frame` を実装（`image.frombuffer` → 既存 `_draw_surface` 再利用、byte 長検証は open 前）
+- [x] `ProjectionWindow` facade に `show_frame` を追加
+- [x] テスト（byte 長不一致 / 不明フォーマット / 検証ヘルパ。GUI 不要）と `examples/show_frame.py`
+- [x] README / ARCHITECTURE / STATUS / MEMORY を更新
+- [x] format / lint / typecheck / test と RGB/RGBA の windowed smoke を通す
+
+### Decision Log
+- 2026-06-09: byte 長検証（`width*height*bpp`）を window を開く前に行い、不一致は `got/expected` 付き `ValueError`。pygame の不透明な `frombuffer` 失敗より明確で、GUI なしで単体テストできる。
+- 2026-06-09: `frombuffer` は buffer を非コピーで包むが、`_draw_surface` が同期的に blit/scale して display surface に取り込むため、buffer は呼び出し中だけ生きていればよい（dangling 参照なし）。
+- 2026-06-09: `normalize_pixel_format` は `dict[PixelFormat, int]` への `in` で mypy が str→PixelFormat を絞れるため、`normalize_fit_mode`（frozenset[str]）と違い `type: ignore` 不要。
+
+### Outcomes & Retrospective
+- 2026-06-09: 完了。生ピクセル byte 列（RGB/RGBA, tightly-packed）を pygame backend で投影できるようになった。検証スタック全緑（50 passed）＋ RGB/RGBA の windowed smoke 成功。realtime 経路は無改修。
+
+---
+
 ## Plan: Projector Controller 文書初期整理
 
 - **Status:** `Done`

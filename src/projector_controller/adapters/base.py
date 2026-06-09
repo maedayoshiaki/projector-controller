@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol
 
-from projector_controller.config import FitMode
+from projector_controller.config import FitMode, PixelFormat, Size
 
 
 class ProjectionBackend(Protocol):
@@ -22,6 +22,16 @@ class ProjectionBackend(Protocol):
 
     def show_test_pattern(self) -> None:
         """Draw a generated test pattern to the projection window."""
+
+    def show_frame(
+        self,
+        data: bytes | bytearray | memoryview,
+        size: Size | tuple[int, int],
+        *,
+        pixel_format: PixelFormat = "RGB",
+        fit_mode: FitMode | None = None,
+    ) -> None:
+        """Draw a raw pixel buffer (RGB/RGBA, tightly packed) to the window."""
 
     def poll_events(self) -> bool:
         """Process backend events. Return False when the window should close."""

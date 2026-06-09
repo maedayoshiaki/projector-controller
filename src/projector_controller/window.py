@@ -10,6 +10,7 @@ from projector_controller.adapters.base import ProjectionBackend
 from projector_controller.config import (
     ColorValue,
     FitMode,
+    PixelFormat,
     Point,
     ProjectionConfig,
     Size,
@@ -73,6 +74,24 @@ class ProjectionWindow:
 
     def show_test_pattern(self) -> None:
         self._ensure_open().show_test_pattern()
+
+    def show_frame(
+        self,
+        data: bytes | bytearray | memoryview,
+        size: Size | tuple[int, int],
+        *,
+        pixel_format: PixelFormat = "RGB",
+        fit_mode: FitMode | None = None,
+    ) -> None:
+        """Draw a raw pixel buffer to the window.
+
+        ``data`` is a tightly packed (no row padding) ``width * height * bytes_per_pixel``
+        buffer: 3 bytes/pixel for ``"RGB"``, 4 for ``"RGBA"``. ``size`` is the buffer's
+        pixel dimensions, which need not match the window size — ``fit_mode`` (or the
+        window default) places it.
+        """
+
+        self._ensure_open().show_frame(data, size, pixel_format=pixel_format, fit_mode=fit_mode)
 
     def poll_events(self) -> bool:
         return self._ensure_open().poll_events()

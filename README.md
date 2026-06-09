@@ -47,6 +47,21 @@ with ProjectionWindow(display=0, fullscreen=False, size=(1280, 720)) as window:
     window.wait()
 ```
 
+生のピクセル byte 列（行間パディング無し）を pygame backend で表示する場合:
+
+```python
+from projector_controller import ProjectionWindow
+
+width, height = 640, 360
+frame = bytes([255, 128, 0]) * (width * height)  # RGB（3 bytes/pixel）
+
+with ProjectionWindow(display=0, size=(1280, 720)) as window:
+    # pixel_format は "RGB"（既定）/ "RGBA"。size は byte 列の解像度で、
+    # ウィンドウサイズと違ってよい（fit_mode で配置する）。
+    window.show_frame(frame, (width, height), pixel_format="RGB")
+    window.wait()
+```
+
 リアルタイムフレームを Rust GPU renderer へ送る場合:
 
 ```python

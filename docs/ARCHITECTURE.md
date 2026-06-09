@@ -82,7 +82,7 @@ GPU / display
 
 | モジュール | 責務 | 依存してよい先 |
 |------|------|------|
-| `projector_controller.window` | `ProjectionWindow` 公開 API | `config`, backend adapter |
+| `projector_controller.window` | `ProjectionWindow` 公開 API（静止画 / テストパターン / 生ピクセル byte 列 `show_frame`） | `config`, backend adapter |
 | `projector_controller.realtime` | `RealtimeProjection` 公開 API、Rust renderer process 起動、frame IPC | `config`, Rust renderer binary |
 | `projector_controller.video` | `VideoPlayer` 公開 API。renderer + 専用 media プロセスの統制（案 C） | `config`, `realtime`（spawn ヘルパ） |
 | `projector_controller.media` | 専用 media プロセス。PyAV で映像をデコードし frame protocol で renderer に直接 push、音声は sounddevice で再生し音声 master で A/V 同期 | `config`, `realtime`（protocol）, `av`, `sounddevice` |
@@ -122,6 +122,7 @@ graph TD
 - `Point` / `Size`: ウィンドウの絶対座標と画素サイズ。`ProjectionConfig` は `position`（`None`=中央）と `size` を保持する。
 - `ProjectionConfig`: フルスクリーン、対象ディスプレイ、位置、サイズ、背景色、fit mode など。
 - `FitMode`: `contain`, `cover`, `stretch`, `native` などの表示方法。
+- `PixelFormat`: `show_frame` が受け取る生ピクセル byte 列の並び。`RGB`（3 bytes/pixel）/ `RGBA`（4 bytes/pixel）。pygame の `image.frombuffer` 形式文字列で、tightly-packed（行間パディング無し）を前提とする。
 - `MediaSource`: 静止画、動画、生成フレームなどの入力。
 - `RealtimeProjection`: Rust renderer process を制御し、`submit_frame` で frame を投入する Python facade。
 - `VideoPlayer`: Rust renderer と専用 media プロセスを起動・統制する Python facade（案 C）。Python は frame を触らず、media プロセスが PyAV で映像をデコードして renderer に push し、音声は sounddevice で再生して**音声 master clock**で A/V 同期する。`mute` / `av_offset_ms` で音声無効化・遅延補正。
