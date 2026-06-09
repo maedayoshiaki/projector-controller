@@ -7,8 +7,12 @@ from typing import Literal
 
 type FitMode = Literal["contain", "cover", "stretch", "native"]
 type ColorValue = str | tuple[int, int, int] | tuple[int, int, int, int]
+# Pixel layout of a raw frame buffer passed to ProjectionWindow.show_frame. These are
+# pygame.image.frombuffer format strings; bytes-per-pixel is fixed per format.
+type PixelFormat = Literal["RGB", "RGBA"]
 
 VALID_FIT_MODES: frozenset[str] = frozenset(("contain", "cover", "stretch", "native"))
+PIXEL_FORMAT_BYTES: dict[PixelFormat, int] = {"RGB": 3, "RGBA": 4}
 
 
 @dataclass(frozen=True)
@@ -121,3 +125,14 @@ def normalize_fit_mode(value: str) -> FitMode:
         msg = f"unsupported fit mode: {value}"
         raise ValueError(msg)
     return value  # type: ignore[return-value]
+
+
+def normalize_pixel_format(value: str) -> PixelFormat:
+    """Validate a user-provided pixel format and narrow it for type checkers."""
+
+    if value not in PIXEL_FORMAT_BYTES:
+        msg = f"unsupported pixel format: {value}"
+        raise ValueError(msg)
+    # ``value in dict[PixelFormat, int]`` lets mypy narrow str -> PixelFormat here, so
+    # (unlike normalize_fit_mode against a frozenset[str]) no return-value ignore is needed.
+    return value

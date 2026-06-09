@@ -7,7 +7,15 @@ import time
 from pathlib import Path
 from typing import Any
 
-from projector_controller.config import DisplaySpec, FitMode, ProjectionConfig, Size
+from projector_controller.config import (
+    PIXEL_FORMAT_BYTES,
+    DisplaySpec,
+    FitMode,
+    PixelFormat,
+    ProjectionConfig,
+    Size,
+    normalize_pixel_format,
+)
 from projector_controller.fit import compute_fit_rect
 
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
@@ -89,6 +97,31 @@ class PygameProjectionBackend:
 
         image = pygame.image.load(str(image_path)).convert_alpha()
         self._draw_surface(image, fit_mode or self._config.fit_mode)
+
+    def show_frame(
+        self,
+        data: bytes | bytearray | memoryview,
+        size: Size | tuple[int, int],
+        *,
+        pixel_format: PixelFormat = "RGB",
+        fit_mode: FitMode | None = None,
+    ) -> None:
+        frame_size = size if isinstance(size, Size) else Size.from_tuple(size)
+        fmt = normalize_pixel_format(pixel_format)
+        # Validate the buffer before touching the window so callers get a precise error
+        # (got/expected) instead of pygame's opaque frombuffer failure. memoryview.cast
+        # accepts bytes/bytearray/memoryview uniformly without copying.
+        payload = memoryview(data).cast("B")
+        expected = frame_size.width * frame_size.height * PIXEL_FORMAT_BYTES[fmt]
+        if payload.nbytes != expected:
+            msg = f"frame byte length mismatch: got {payload.nbytes}, expected {expected}"
+            raise ValueError(msg)
+
+        self._ensure_open()
+        # frombuffer wraps the buffer without copying; _draw_surface blits/scales it into
+        # the display surface synchronously, so the buffer need only live for this call.
+        frame = pygame.image.frombuffer(payload, frame_size.as_tuple(), fmt)
+        self._draw_surface(frame, fit_mode or self._config.fit_mode)
 
     def show_test_pattern(self) -> None:
         self._ensure_open()

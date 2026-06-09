@@ -3,7 +3,7 @@
 **現在**を扱うファイル。「今この瞬間、何がどうなっているか」のスナップショット。
 各セッションの最初に読み、最後に更新する。確定した事項は `MEMORY.md` へ昇格する。
 
-- **Last updated:** 2026-06-01
+- **Last updated:** 2026-06-09
 - **Current focus:** realtime #1（性能, 1080p60 達成）と #2（動画 + 音声 + A/V 同期）はいずれも**完了**。PR #3（#1→main）と PR #2（#2→#1 にスタック）が main マージ待ち。次の大物は無し（残は projtest-002 実機・#3 設定ファイル・将来 4K60）
 - **Working branch:** feature/realtime-video-mvp（#2 映像 MVP。#1 は feature/realtime-frame-ipc にコミット済み）
 
@@ -41,6 +41,7 @@
 
 ## Recently Done
 
+- 2026-06-09 pygame backend に**生ピクセル byte 列を表示する `show_frame` を追加**（公開 API・人間承認済み: ProjectionWindow メソッド / RGB・RGBA 両対応・既定 RGB / ライブラリ API のみ）。`pygame.image.frombuffer` で byte 列→Surface→既存 `_draw_surface`（fit + flip）を再利用。byte 長は `width*height*bpp` を window を開く前に検証し、不一致は `got/expected` 付き `ValueError`（GUI 不要でテスト可能）。`config` に `PixelFormat`/`PIXEL_FORMAT_BYTES`/`normalize_pixel_format` を追加、`base` protocol・`window` facade に反映、`examples/show_frame.py` 追加。検証スタック全緑（ruff/mypy/pytest 50 passed）＋ RGB/RGBA の windowed smoke 成功。
 - 2026-06-01 動画再生の**起動待ちを ~704ms → ~330ms に半減**。内訳計測で `AudioMaster.start()` 内の `sounddevice.query_devices()`（PortAudio 同期初期化 ~350ms）が最大要因と判明 → 除去し、デバイス可否は worker の stream open 成否で判定（失敗時は `play()` が `audio.started()` を見て wall-clock fallback）。検証 44 passed、A/V 再生 smoke 回帰なし。`feature/realtime-video-startup`。
 - 2026-06-01 **実写動画（iPhone 縦撮り HEVC/Dolby Vision .MOV）で #2 を最終確認 → 完璧（向き・画質・音 OK）**。過程で**回転バグを発見・恒久修正**: スマホ縦動画は landscape 保存＋回転メタなので、無視して横倒しに出ていた。PyAV 17 は回転角を出さないため frame の `DISPLAYMATRIX`（9×int32, 16.16 固定）を自前で解いて 0/90/180/270 を判定し、av `transpose` フィルタで自動回転（`decode_video_frames`/`VideoPlayer.play` に `rotate` 手動上書きも追加）。テスト `_rotation_from_matrix`（90/180/270/0）追加。検証 44 passed。HEVC 1080p ソフトデコードは ~84fps で 30fps 再生に十分。
 - 2026-06-01 **動画フルスクリーン再生（#2）の実機デバッグ**。外部 fullscreen で (1) カクつき/同期ずれ → 計測で音声 master clock のチャンク状進行が原因と特定し **wall-time 基準に修正**（interval 33.3ms 固定・stutter 0、commit `f015b4a`）。(2) ノイズ → **テスト内容（剰余ラップ＋動き）由来**と切り分け、素直な静止グラデ高画質版は「綺麗・ノイズなし」で renderer/パイプラインは正常と確認。残: 実写動画での最終確認、起動 ~0.8s の音声デバイス open 待ち短縮（任意）。
